@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+websockets
+mcp
+aiosqlite
+pydantic
+pyyaml
+pytest
+pytest-asyncio
+python-dotenv
+openai
+volcengine-python-sdk-ark
+requests
+openpyxl
+python-docx
+beautifulsoup4

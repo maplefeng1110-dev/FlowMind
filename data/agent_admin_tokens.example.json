@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-03-29T23:30:00Z",
+  "default_token": "replace-with-shared-fallback-token",
+  "default_rotated_at": "2026-03-29T23:30:00Z",
+  "machine_tokens": {
+    "machine-a": {
+      "token": "replace-with-agent-a-token",
+      "rotated_at": "2026-03-29T23:30:00Z",
+      "note": "production-a"
+    },
+    "machine-b": {
+      "token": "replace-with-agent-b-token",
+      "rotated_at": "2026-03-29T23:30:00Z",
+      "note": "production-b"
+    }
+  }
+}

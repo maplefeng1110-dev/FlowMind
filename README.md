@@ -89,7 +89,7 @@ FlowMind 是一个将 RPA（机器人流程自动化）与 AI（人工智能）�
 - 发布前请确认 README 中的对外口径、仓库名和截图素材符合预期
 - 更完整的发布动作见 [PUBLISHING.md](PUBLISHING.md)
 - 多平台首发文案模板见 [GITHUB_LAUNCH_COPY.md](GITHUB_LAUNCH_COPY.md)
-- GitHub Social Preview 图可直接使用 `docs/assets/social-preview.png`
+- GitHub Social Preview 图可直接使用 `docs/assets/social-preview.jpg`
 
 ## 企业级自由编排基础
 

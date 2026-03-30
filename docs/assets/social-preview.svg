@@ -1,0 +1,62 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="640" rx="32" fill="#08111F"/>
+  <rect x="24" y="24" width="1232" height="592" rx="28" fill="url(#bg)"/>
+  <circle cx="1110" cy="118" r="150" fill="#1EE3A8" fill-opacity="0.12"/>
+  <circle cx="1018" cy="518" r="220" fill="#79B8FF" fill-opacity="0.12"/>
+  <rect x="78" y="94" width="180" height="34" rx="17" fill="#142338"/>
+  <text x="108" y="117" fill="#9EEFD1" font-size="16" font-family="Arial, Helvetica, sans-serif">AI Native RPA</text>
+  <text x="78" y="210" fill="#F7FBFF" font-size="84" font-weight="700" font-family="Arial, Helvetica, sans-serif">FlowMind</text>
+  <text x="78" y="266" fill="#BED3E8" font-size="26" font-family="Arial, Helvetica, sans-serif">Chat-driven orchestration for enterprise automation</text>
+  <text x="78" y="314" fill="#8DA8C3" font-size="24" font-family="Arial, Helvetica, sans-serif">Plugins, runtime plans, scheduling, exports, and observable execution</text>
+
+  <rect x="78" y="388" width="174" height="48" rx="24" fill="#1EE3A8"/>
+  <text x="112" y="419" fill="#04283A" font-size="22" font-weight="700" font-family="Arial, Helvetica, sans-serif">Plugin-based</text>
+  <rect x="270" y="388" width="188" height="48" rx="24" fill="#142338"/>
+  <text x="306" y="419" fill="#D8E6F5" font-size="22" font-weight="700" font-family="Arial, Helvetica, sans-serif">Runtime plans</text>
+  <rect x="476" y="388" width="176" height="48" rx="24" fill="#142338"/>
+  <text x="514" y="419" fill="#D8E6F5" font-size="22" font-weight="700" font-family="Arial, Helvetica, sans-serif">Scheduling</text>
+  <rect x="78" y="452" width="146" height="44" rx="22" fill="#142338"/>
+  <text x="111" y="480" fill="#D8E6F5" font-size="20" font-weight="700" font-family="Arial, Helvetica, sans-serif">Exports</text>
+  <rect x="238" y="452" width="220" height="44" rx="22" fill="#142338"/>
+  <text x="271" y="480" fill="#D8E6F5" font-size="20" font-weight="700" font-family="Arial, Helvetica, sans-serif">Permission boundaries</text>
+
+  <g transform="translate(708 86)">
+    <rect x="0" y="34" width="462" height="286" rx="28" fill="#F8FBFF"/>
+    <rect x="0" y="34" width="462" height="54" rx="28" fill="#E9F0F7"/>
+    <circle cx="30" cy="61" r="7" fill="#FD6B6B"/>
+    <circle cx="54" cy="61" r="7" fill="#FDBA4D"/>
+    <circle cx="78" cy="61" r="7" fill="#31D28B"/>
+    <rect x="26" y="108" width="112" height="188" rx="18" fill="#0F1E31"/>
+    <rect x="158" y="108" width="278" height="188" rx="18" fill="#F2F7FC"/>
+    <rect x="40" y="126" width="78" height="12" rx="6" fill="#213752"/>
+    <rect x="40" y="150" width="66" height="10" rx="5" fill="#1B2E46"/>
+    <rect x="40" y="188" width="84" height="34" rx="16" fill="#1EE3A8" fill-opacity="0.16"/>
+    <text x="52" y="210" fill="#C9F8E4" font-size="14" font-family="Arial, Helvetica, sans-serif">New chat</text>
+    <rect x="174" y="126" width="164" height="14" rx="7" fill="#D3E2F0"/>
+    <rect x="174" y="152" width="210" height="44" rx="20" fill="#DFF7EE"/>
+    <text x="192" y="180" fill="#164B42" font-size="15" font-family="Arial, Helvetica, sans-serif">Recognize invoices and export summary</text>
+    <rect x="174" y="214" width="236" height="64" rx="18" fill="#0F1E31"/>
+    <text x="192" y="238" fill="#F7FBFF" font-size="14" font-family="Arial, Helvetica, sans-serif">Runtime plan</text>
+    <text x="192" y="260" fill="#A8C1DA" font-size="13" font-family="Arial, Helvetica, sans-serif">OCR → aggregate → Excel → email</text>
+    <circle cx="368" cy="237" r="8" fill="#1EE3A8"/>
+    <circle cx="390" cy="237" r="8" fill="#79B8FF"/>
+  </g>
+
+  <g transform="translate(828 356)">
+    <rect x="0" y="0" width="310" height="170" rx="26" fill="#0E1B2D"/>
+    <text x="26" y="38" fill="#F7FBFF" font-size="22" font-weight="700" font-family="Arial, Helvetica, sans-serif">Schedule center</text>
+    <rect x="24" y="58" width="262" height="36" rx="18" fill="#17314D"/>
+    <text x="42" y="81" fill="#D7E8F6" font-size="15" font-family="Arial, Helvetica, sans-serif">Daily invoice digest · 09:30</text>
+    <rect x="24" y="106" width="126" height="34" rx="17" fill="#1EE3A8"/>
+    <text x="52" y="128" fill="#083245" font-size="14" font-weight="700" font-family="Arial, Helvetica, sans-serif">Export center</text>
+    <rect x="162" y="106" width="124" height="34" rx="17" fill="#17314D"/>
+    <text x="190" y="128" fill="#D7E8F6" font-size="14" font-weight="700" font-family="Arial, Helvetica, sans-serif">Trace ready</text>
+  </g>
+
+  <defs>
+    <linearGradient id="bg" x1="92" y1="54" x2="1180" y2="598" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0E1A2B"/>
+      <stop offset="1" stop-color="#10263D"/>
+    </linearGradient>
+  </defs>
+</svg>

@@ -1,0 +1,57 @@
+id: "send_email"
+version: "1.0.0"
+description: "通过 SMTP 发送邮件，可用于通知用户任务执行结果。"
+tags: ["邮件", "通知"]
+capabilities: ["email", "notification"]
+enforcement:
+  must_call_when_matched: true
+  require_success_before_final: true
+  intent_keywords: ["发邮件", "发送邮件", "发到邮箱", "发送到邮箱", "邮件通知", "email", "mail"]
+params_schema:
+  type: "object"
+  properties:
+    to:
+      type: "string"
+      description: "收件人邮箱地址"
+    subject:
+      type: "string"
+      description: "邮件主题"
+    body:
+      type: "string"
+      description: "邮件 HTML 正文"
+  required:
+    - "to"
+    - "subject"
+    - "body"
+returns_schema:
+  type: "object"
+  properties:
+    status:
+      type: "string"
+      description: "执行状态 (success/error)"
+    data:
+      type: "object"
+      description: "发送结果数据"
+tool_profile:
+  solves:
+    - "把处理结果、通知内容或审批信息发送给指定收件人"
+  suitable_inputs:
+    - "适合明确收件人、主题和正文都已准备好的通知类场景"
+  outputs:
+    - "返回邮件发送状态、收件人和投递结果"
+  prerequisites:
+    - "SMTP 配置已完成"
+    - "收件人邮箱、主题和正文必须完整"
+  common_failure_reasons:
+    - "缺少 to/subject/body 参数"
+    - "SMTP 鉴权失败或邮箱地址非法"
+  supports_batch: false
+  has_side_effects: true
+  requires_confirmation: true
+  confirmation_hint: "发送邮件属于外部副作用操作，请确保用户已经明确要求发送。"
+  allowed_path_roots:
+    - "data/uploads"
+    - "data/exports"
+  max_retries: 0
+timeout_sec: 30
+owner: "system"

@@ -1,0 +1,94 @@
+id: "excel_processor"
+version: "1.1.0"
+description: "真实 Excel 数据处理，可用于读取、写入、追加、筛选、聚合和生成统计报表。"
+tags: ["excel", "表格", "数据处理"]
+capabilities: ["excel", "xlsx", "spreadsheet"]
+enforcement:
+  must_call_when_matched: true
+  require_success_before_final: true
+  intent_keywords: ["excel", "xlsx", "excel表", "处理excel", "表格处理", "工作表", "sheet", "统计报表", "生成报表"]
+params_schema:
+  type: "object"
+  properties:
+    operation:
+      type: "string"
+      description: "操作类型，可选 summary/filter/create_report/read_range/write_cells/append_rows/aggregate"
+    file_path:
+      type: "string"
+      description: "Excel 文件路径，支持 .xlsx/.xlsm"
+    sheet_name:
+      type: "string"
+      description: "工作表名称，可选"
+    range_ref:
+      type: "string"
+      description: "单元格范围，例如 A1:D20"
+    filter_column:
+      type: "string"
+      description: "筛选列名，仅 operation=filter 时生效"
+    filter_value:
+      type: "string"
+      description: "筛选值，仅 operation=filter 时生效"
+    output_path:
+      type: "string"
+      description: "导出文件路径，可用于 create_report/write_cells/append_rows"
+    cell_updates:
+      type: "array"
+      description: "单元格更新列表，仅 operation=write_cells 时生效"
+      items:
+        type: "object"
+        properties:
+          cell:
+            type: "string"
+            description: "单元格地址，例如 B2"
+          value:
+            description: "单元格要写入的值"
+        required:
+          - "cell"
+    rows:
+      type: "array"
+      description: "要追加的行，仅 operation=append_rows 时生效，可传对象数组或二维数组"
+      items:
+        type: "object"
+    group_by:
+      type: "string"
+      description: "聚合分组列，仅 operation=aggregate 时生效"
+    metric_column:
+      type: "string"
+      description: "聚合指标列，仅 operation=aggregate 时生效"
+    metric:
+      type: "string"
+      description: "聚合方式，仅 operation=aggregate 时生效，可选 sum/avg/min/max/count"
+      default: "sum"
+  required:
+    - "operation"
+    - "file_path"
+returns_schema:
+  type: "object"
+  properties:
+    status:
+      type: "string"
+      description: "执行状态"
+    data:
+      type: "object"
+      description: "Excel 处理结果"
+tool_profile:
+  solves:
+    - "把业务数据读取、汇总、追加或写入 Excel 工作簿"
+  suitable_inputs:
+    - "适合 Excel 文件路径、工作表名、单元格更新或批量行数据输入"
+  outputs:
+    - "返回读取结果、聚合结果或输出文件路径"
+  prerequisites:
+    - "目标 Excel 文件已存在，或 output_path 位于授权目录"
+  common_failure_reasons:
+    - "工作表不存在、范围引用错误或写入数据格式不合法"
+    - "文件被占用、无权限或路径超出授权目录"
+  supports_batch: true
+  has_side_effects: true
+  requires_confirmation: false
+  allowed_path_roots:
+    - "data/uploads"
+    - "data/exports"
+  max_retries: 1
+timeout_sec: 20
+owner: "system"

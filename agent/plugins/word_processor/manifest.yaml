@@ -1,0 +1,63 @@
+id: "word_processor"
+version: "1.1.0"
+description: "真实 Word 文档处理，可用于摘要、格式整理、内容替换、模板填充、目录提取和表格抽取。"
+tags: ["word", "文档", "办公"]
+capabilities: ["word", "docx", "document"]
+enforcement:
+  must_call_when_matched: true
+  require_success_before_final: true
+  intent_keywords: ["word", "word文档", "docx", "总结word", "处理word", "整理word", "文档摘要", "文档处理"]
+params_schema:
+  type: "object"
+  properties:
+    operation:
+      type: "string"
+      description: "操作类型，可选 summarize/format/replace_text/fill_template/extract_outline/extract_tables"
+    document_path:
+      type: "string"
+      description: "Word 文档路径，支持 .docx"
+    keyword:
+      type: "string"
+      description: "替换或定位的关键词，可选"
+    replacement:
+      type: "string"
+      description: "替换后的文本，可选"
+    output_path:
+      type: "string"
+      description: "输出文档路径，可选；未填写时自动生成"
+    replacements:
+      type: "object"
+      description: "模板占位符替换映射，仅 operation=fill_template 时生效"
+  required:
+    - "operation"
+    - "document_path"
+returns_schema:
+  type: "object"
+  properties:
+    status:
+      type: "string"
+      description: "执行状态"
+    data:
+      type: "object"
+      description: "Word 文档处理结果"
+tool_profile:
+  solves:
+    - "提取、整理或生成 Word 文档内容"
+  suitable_inputs:
+    - "适合 .docx 路径、模板替换映射或摘要/目录抽取场景"
+  outputs:
+    - "返回文档摘要、目录、表格内容或输出文档路径"
+  prerequisites:
+    - "输入文档已上传，输出路径位于授权目录"
+  common_failure_reasons:
+    - "文档损坏、占位符缺失或路径无权限"
+    - "docx 结构异常导致抽取失败"
+  supports_batch: false
+  has_side_effects: true
+  requires_confirmation: false
+  allowed_path_roots:
+    - "data/uploads"
+    - "data/exports"
+  max_retries: 1
+timeout_sec: 20
+owner: "system"

@@ -1,0 +1,75 @@
+id: "web_query"
+version: "1.1.0"
+description: "真实网页查询，可搜索公开网页、抓取页面、结构化提取、多页抓取和选择器抽取。"
+tags: ["网页", "查询", "搜索"]
+capabilities: ["web", "search", "fetch_page"]
+enforcement:
+  must_call_when_matched: true
+  require_success_before_final: true
+  intent_keywords: ["网页查询", "网页搜索", "搜索网页", "联网查询", "网上查询", "抓取网页", "访问链接", "打开网址", "网页", "网站"]
+params_schema:
+  type: "object"
+  properties:
+    query:
+      type: "string"
+      description: "查询关键词"
+    site:
+      type: "string"
+      description: "限定站点，可选"
+    mode:
+      type: "string"
+      description: "查询模式，可选 search/fetch_page/extract_structured/fetch_many/selector_extract，默认 search"
+      default: "search"
+    url:
+      type: "string"
+      description: "当 mode=fetch_page 时要抓取的网页地址"
+    top_k:
+      type: "integer"
+      description: "搜索结果条数或批量抓取页数上限，默认 3"
+      default: 3
+    urls:
+      type: "array"
+      description: "批量抓取的 URL 列表，仅 mode=fetch_many 时生效"
+      items:
+        type: "string"
+    selector:
+      type: "string"
+      description: "CSS 选择器，仅 mode=selector_extract 时生效"
+    attribute:
+      type: "string"
+      description: "要提取的属性名，仅 mode=selector_extract 时生效；留空则提取文本"
+    selectors:
+      type: "object"
+      description: "结构化抽取字段映射，仅 mode=extract_structured 时生效，例如 {headline: 'h1'}"
+    limit:
+      type: "integer"
+      description: "selector_extract 返回条数上限，默认 5"
+      default: 5
+returns_schema:
+  type: "object"
+  properties:
+    status:
+      type: "string"
+      description: "执行状态"
+    data:
+      type: "object"
+      description: "网页查询结果"
+tool_profile:
+  solves:
+    - "联网搜索、抓取网页并提取结构化公开信息"
+  suitable_inputs:
+    - "适合关键词查询、公开 URL、批量 URL 或 CSS 选择器抽取"
+  outputs:
+    - "返回搜索结果、页面正文或结构化字段集合"
+  prerequisites:
+    - "目标页面必须是可访问的公开网页"
+  common_failure_reasons:
+    - "网络不可达、站点限制访问或选择器无法命中"
+    - "批量 URL 输入过多或字段映射不合法"
+  supports_batch: true
+  has_side_effects: false
+  requires_confirmation: false
+  allowed_path_roots: []
+  max_retries: 1
+timeout_sec: 15
+owner: "system"

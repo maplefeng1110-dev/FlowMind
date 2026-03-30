@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlowMind - AI 自动化助手</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=20260330-business-machine-visibility-1">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                    </svg>
+                    <span>FlowMind</span>
+                </div>
+                <button class="new-chat-btn" id="newChatBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    新建对话
+                </button>
+                <div class="sidebar-spotlight">
+                    <div class="sidebar-spotlight-label">Automation cockpit</div>
+                    <div class="sidebar-spotlight-title">把文档、网页和本地任务放进同一条对话链路。</div>
+                    <p class="sidebar-spotlight-copy">在一个工作台里完成 OCR、结构化抽取、邮件发送和 RPA 调度，不再来回切换工具。</p>
+                    <div class="sidebar-spotlight-tags">
+                        <span>OCR</span>
+                        <span>Web</span>
+                        <span>RPA</span>
+                        <span>Email</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-history">
+                <div class="history-section-title">历史对话</div>
+                <div class="history-list" id="historyList"></div>
+                <div class="common-task-section">
+                    <div class="history-section-title">常用任务</div>
+                    <div class="common-task-list" id="commonTaskList"></div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="user-panel" id="userPanel">
+                    <div class="user-panel-meta">
+                        <div class="user-panel-name" id="currentUserName">未登录</div>
+                        <div class="user-panel-role" id="currentUserRole">请先登录继续使用</div>
+                    </div>
+                    <button class="ghost-action-btn" id="logoutBtn">退出</button>
+                </div>
+                <button class="theme-toggle-btn" id="themeToggleBtn" title="切换主题">
+                    <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                    <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <span>切换深浅主题</span>
+                </button>
+                <div class="status-badge" id="statusBadge">
+                    <span class="status-dot"></span>
+                    <span class="status-text">系统就绪</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="chat-main">
+            <div class="chat-header">
+                <div class="chat-title">
+                    <div class="chat-kicker">FlowMind Workspace</div>
+                    <h1>会话驱动的自动化工作台</h1>
+                    <p>在一个命令面板里串起 OCR、文档处理、网页抓取和本地 RPA，让自动化像对话一样自然展开。</p>
+                    <div class="chat-capability-row">
+                        <span class="capability-pill">文档理解</span>
+                        <span class="capability-pill">网页采集</span>
+                        <span class="capability-pill">任务调度</span>
+                        <span class="capability-pill">权限控制</span>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <button class="icon-btn" id="machinesBtn" title="查看在线机器">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="4" width="18" height="12" rx="2"/>
+                            <path d="M8 20h8M12 16v4"/>
+                        </svg>
+                    </button>
+                    <button class="icon-btn" id="tasksBtn" title="查看任务中心">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="4" width="18" height="18" rx="2"/>
+                            <path d="M8 2v4M16 2v4M3 10h18"/>
+                            <path d="M8 14h3M8 18h5M15 14h1"/>
+                        </svg>
+                        <span class="icon-btn-badge" id="tasksBadge" style="display: none;">0</span>
+                    </button>
+                    <button class="icon-btn" id="scheduleBtn" title="查看调度中心">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="13" r="8"/>
+                            <path d="M12 9v4l3 2"/>
+                            <path d="M7 2h10"/>
+                            <path d="M9 2v3M15 2v3"/>
+                        </svg>
+                    </button>
+                    <button class="icon-btn" id="toolsBtn" title="查看可用工具">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                    </button>
+                    <button class="icon-btn" id="exportBtn" title="查看导出中心">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 3v12"/>
+                            <path d="M8 11l4 4 4-4"/>
+                            <path d="M4 20h16"/>
+                        </svg>
+                    </button>
+                    <button class="icon-btn" id="adminBtn" title="管理业务账号与插件权限" style="display: none;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2l3.09 6.26L22 9l-5 4.87L18.18 21 12 17.77 5.82 21 7 13.87 2 9l6.91-.74L12 2z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="messages-container" id="messagesContainer">
+                <div class="messages" id="messages">
+                    <div class="message assistant">
+                        <div class="message-avatar">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 16v-4M12 8h.01"/>
+                            </svg>
+                        </div>
+                        <div class="message-content">
+                            <div class="message-header">
+                                <span class="message-name">AI 助手</span>
+                            </div>
+                            <div class="message-text">
+                                <p>你好，我可以帮你完成这些任务：</p>
+                                <ul>
+                                    <li>识别发票图片或 PDF</li>
+                                    <li>发送邮件通知</li>
+                                    <li>调度本地 RPA 插件</li>
+                                </ul>
+                                <p>试试输入：“帮我识别这张发票” 或 “把结果发送到 xxx@example.com”。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-container">
+                <div id="filePreviewContainer" class="file-preview-container" style="display: none;"></div>
+                <div class="input-wrapper">
+                    <input type="file" id="fileInput" style="display: none;" multiple>
+                    <button class="attach-btn" id="attachBtn" title="添加文件">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                        </svg>
+                    </button>
+                    <textarea id="messageInput" placeholder="输入你的消息..." rows="1"></textarea>
+                    <button class="send-btn" id="sendBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"/>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="input-hint">按 Enter 发送，Shift + Enter 换行</div>
+            </div>
+        </main>
+    </div>
+
+    <div class="modal-overlay" id="toolsModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>可用工具</h2>
+                <div class="modal-header-actions">
+                    <button class="task-refresh-btn" id="refreshToolsBtn">刷新</button>
+                    <button class="modal-close" id="closeToolsModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-content">
+                <div class="tool-list" id="toolList"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="machinesModal">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2>在线机器</h2>
+                <div class="modal-header-actions">
+                    <button class="task-refresh-btn" id="refreshMachinesBtn">刷新</button>
+                    <button class="modal-close" id="closeMachinesModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-content">
+                <div class="machine-list" id="machineList"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="tasksModal">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2>任务中心</h2>
+                <div class="modal-header-actions">
+                    <button class="task-refresh-btn" id="refreshTasksBtn">刷新</button>
+                    <button class="modal-close" id="closeTasksModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-content">
+                <div class="task-list" id="taskList"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="schedulesModal">
+        <div class="modal modal-wide schedule-modal">
+            <div class="modal-header">
+                <h2>定时调度中心</h2>
+                <div class="modal-header-actions">
+                    <button class="task-refresh-btn" id="refreshSchedulesBtn">刷新</button>
+                    <button class="modal-close" id="closeSchedulesModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-content">
+                <div class="schedule-layout">
+                    <section class="schedule-create-panel">
+                        <div class="admin-section-title">任务计划管理</div>
+                        <p class="admin-section-subtitle">把常用任务沉淀成可定时执行的计划，支持一次性、间隔和每日调度。</p>
+                        <form id="scheduleForm" class="admin-form">
+                            <label class="admin-field">
+                                <span>计划名称</span>
+                                <input id="scheduleTitle" type="text" placeholder="例如：财务日报汇总">
+                            </label>
+                            <label class="admin-field">
+                                <span>关联常用任务</span>
+                                <select id="scheduleCommonTask"></select>
+                            </label>
+                            <label class="admin-field">
+                                <span>执行提示词</span>
+                                <textarea id="schedulePrompt" placeholder="例如：把这些发票识别后汇总到 Excel，再发邮件给财务。"></textarea>
+                            </label>
+                            <div class="schedule-form-grid">
+                                <label class="admin-field">
+                                    <span>模型提供商</span>
+                                    <select id="scheduleProvider"></select>
+                                </label>
+                                <label class="admin-field">
+                                    <span>调度类型</span>
+                                    <select id="scheduleType">
+                                        <option value="daily">每日定时</option>
+                                        <option value="interval">固定间隔</option>
+                                        <option value="once">一次性</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="schedule-form-grid">
+                                <label class="admin-field" id="scheduleDailyRow">
+                                    <span>每日执行时间</span>
+                                    <input id="scheduleDailyTime" type="time" value="09:00">
+                                </label>
+                                <label class="admin-field" id="scheduleIntervalRow" style="display: none;">
+                                    <span>间隔分钟</span>
+                                    <input id="scheduleIntervalMinutes" type="number" min="5" step="5" value="30">
+                                </label>
+                                <label class="admin-field" id="scheduleOnceRow" style="display: none;">
+                                    <span>一次性执行时间</span>
+                                    <input id="scheduleRunAt" type="datetime-local">
+                                </label>
+                                <label class="admin-field">
+                                    <span>时区</span>
+                                    <input id="scheduleTimezone" type="text" value="Asia/Shanghai" placeholder="例如：Asia/Shanghai">
+                                </label>
+                            </div>
+                            <label class="admin-checkbox-field">
+                                <input id="scheduleIsActive" type="checkbox" checked>
+                                <span>创建后立即启用</span>
+                            </label>
+                            <div class="admin-user-actions schedule-form-actions">
+                                <button class="secondary-action-btn" type="button" id="resetScheduleFormBtn">清空表单</button>
+                                <button class="secondary-action-btn" type="submit" id="saveScheduleBtn">保存计划</button>
+                            </div>
+                        </form>
+                        <div class="admin-form-hint" id="scheduleFormHint">调度计划会以当前账号权限执行，并保留运行轨迹。</div>
+                    </section>
+                    <section class="schedule-list-panel">
+                        <div class="admin-section-title">计划列表</div>
+                        <p class="admin-section-subtitle">查看下一次执行时间、最近状态，并在这里启用、暂停、编辑或删除。</p>
+                        <div class="schedule-list" id="scheduleList"></div>
+                    </section>
+                    <section class="schedule-runs-panel">
+                        <div class="admin-section-title">最近执行记录</div>
+                        <p class="admin-section-subtitle">计划每次执行都会留下标准化轨迹，便于审计、排障和导出。</p>
+                        <div class="schedule-run-list" id="scheduleRunList"></div>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="exportsModal">
+        <div class="modal modal-wide export-modal">
+            <div class="modal-header">
+                <h2>统一导出中心</h2>
+                <div class="modal-header-actions">
+                    <button class="task-refresh-btn" id="refreshExportsBtn">刷新</button>
+                    <button class="modal-close" id="closeExportsModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-content">
+                <div class="export-panel">
+                    <div class="admin-section-title">标准化下载格式</div>
+                    <p class="admin-section-subtitle">统一导出任务、常用任务、调度计划、执行记录和当前对话，方便归档、审计或发给业务团队。</p>
+                    <div class="export-grid" id="exportList"></div>
+                    <div class="admin-form-hint" id="exportHint">导出文件会按标准 JSON / CSV / Markdown 下载，不需要额外进入服务器目录。</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="adminModal">
+        <div class="modal modal-wide admin-modal">
+            <div class="modal-header">
+                <h2>账号权限中心</h2>
+                <div class="modal-header-actions">
+                    <button class="task-refresh-btn" id="refreshAdminBtn">刷新</button>
+                    <button class="modal-close" id="closeAdminModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-content">
+                <div class="admin-layout">
+                    <div class="admin-side-stack">
+                        <section class="admin-create-panel">
+                            <div class="admin-section-title">新建业务账号</div>
+                            <p class="admin-section-subtitle">管理员创建账号后，可以立即给它分配不同的 RPA 插件。</p>
+                            <form id="createUserForm" class="admin-form">
+                                <label class="admin-field">
+                                    <span>登录账号</span>
+                                    <input id="newUsername" type="text" placeholder="例如：finance_team" autocomplete="off">
+                                </label>
+                                <label class="admin-field">
+                                    <span>显示名称</span>
+                                    <input id="newDisplayName" type="text" placeholder="例如：财务业务组" autocomplete="off">
+                                </label>
+                                <label class="admin-field">
+                                    <span>初始密码</span>
+                                    <input id="newPassword" type="password" placeholder="至少 8 位">
+                                </label>
+                                <button class="primary-action-btn" id="createUserBtn" type="submit">创建账号</button>
+                                <div class="admin-form-hint" id="adminFormHint">新账号默认角色为业务账号。</div>
+                            </form>
+                        </section>
+                        <section class="admin-create-panel admin-plugin-panel">
+                            <div class="admin-section-title">插件接入向导</div>
+                            <p class="admin-section-subtitle">把现成 Python RPA 文件快速包装成插件，或直接生成空白骨架。生成后会自动写入 manifest 元数据，重启 Agent 即可上线。</p>
+                            <form id="pluginScaffoldForm" class="admin-form">
+                                <label class="admin-field">
+                                    <span>插件 ID</span>
+                                    <input id="pluginId" type="text" placeholder="例如：weather_api" autocomplete="off">
+                                </label>
+                                <label class="admin-field">
+                                    <span>插件描述</span>
+                                    <input id="pluginDescription" type="text" placeholder="例如：天气查询插件" autocomplete="off">
+                                </label>
+                                <label class="admin-field">
+                                    <span>现成 Python 文件路径（可选）</span>
+                                    <input id="pluginSourceFile" type="text" placeholder="/absolute/path/to/weather_rpa.py" autocomplete="off">
+                                </label>
+                                <label class="admin-field">
+                                    <span>目标机器（可选）</span>
+                                    <select id="pluginTargetMachine">
+                                        <option value="">默认路径（本地 Agent 或全局 Agent API）</option>
+                                    </select>
+                                </label>
+                                <label class="admin-field">
+                                    <span>参数定义（空白骨架时使用）</span>
+                                    <textarea id="pluginParams" rows="3" placeholder="一行一个，格式如 city:string&#10;days:integer"></textarea>
+                                </label>
+                                <label class="admin-field">
+                                    <span>必填参数</span>
+                                    <input id="pluginRequiredParams" type="text" placeholder="例如：city, invoice_path" autocomplete="off">
+                                </label>
+                                <label class="admin-field">
+                                    <span>关键词</span>
+                                    <input id="pluginKeywords" type="text" placeholder="例如：天气查询, 查天气" autocomplete="off">
+                                </label>
+                                <label class="admin-field">
+                                    <span>标签</span>
+                                    <input id="pluginTags" type="text" placeholder="例如：weather, api" autocomplete="off">
+                                </label>
+                                <label class="admin-field">
+                                    <span>能力标签</span>
+                                    <input id="pluginCapabilities" type="text" placeholder="例如：weather_query, fetch" autocomplete="off">
+                                </label>
+                                <label class="admin-field">
+                                    <span>超时时间（秒）</span>
+                                    <input id="pluginTimeoutSec" type="number" min="1" step="1" value="60">
+                                </label>
+                                <label class="admin-checkbox-field">
+                                    <input id="pluginForceOverwrite" type="checkbox">
+                                    <span>若目录已存在，允许覆盖重建</span>
+                                </label>
+                                <button class="primary-action-btn" id="createPluginBtn" type="submit">生成插件骨架</button>
+                                <div class="admin-form-hint" id="pluginScaffoldHint">填写插件 ID 即可开始；如果提供 Python 文件路径，系统会优先按现成实现生成 wrapper 与 manifest。若要按机器安装，请先确保目标 Agent 已配置 `AGENT_ADMIN_PUBLIC_URL`，并为 Web 服务配置对应机器的管理 token。</div>
+                            </form>
+                        </section>
+                    </div>
+                    <section class="admin-users-panel">
+                        <div class="admin-section-title">插件授权</div>
+                        <p class="admin-section-subtitle">管理员默认拥有全部插件权限；业务账号按下方勾选结果生效。</p>
+                        <div class="admin-user-list" id="adminUserList"></div>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="auth-screen active" id="authScreen">
+        <div class="auth-card">
+            <div class="auth-hero-row">
+                <div class="auth-badge">FlowMind</div>
+                <div class="auth-badge auth-badge-muted">Automation cockpit</div>
+            </div>
+            <h2>账号登录</h2>
+            <p>进入你的自动化工作台。管理员可以创建业务账号，并为不同团队分配独立的 RPA 插件能力。</p>
+            <div class="auth-mini-grid">
+                <div class="auth-mini-card">
+                    <strong>统一入口</strong>
+                    <span>聊天、任务、机器与权限放在同一界面。</span>
+                </div>
+                <div class="auth-mini-card">
+                    <strong>可控授权</strong>
+                    <span>按业务账号精细分配不同插件能力。</span>
+                </div>
+            </div>
+            <form id="loginForm" class="auth-form">
+                <label class="auth-field">
+                    <span>账号</span>
+                    <input id="loginUsername" type="text" autocomplete="username" placeholder="请输入账号">
+                </label>
+                <label class="auth-field">
+                    <span>密码</span>
+                    <input id="loginPassword" type="password" autocomplete="current-password" placeholder="请输入密码">
+                </label>
+                <div class="auth-error" id="authError"></div>
+                <button class="auth-submit-btn" id="loginBtn" type="submit">登录进入工作台</button>
+            </form>
+            <div class="auth-tip">管理员账号由 `FLOWMIND_ADMIN_USERNAME` / `FLOWMIND_ADMIN_PASSWORD` 控制；若未配置密码，系统会在本地 data 目录生成一次性 bootstrap 凭据文件。</div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js?v=20260330-business-machine-visibility-1"></script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+id: "invoice_ocr"
+version: "1.0.0"
+description: "从发票图片或 PDF 中提取 OCR 文本，供 AI 后续整理结构化信息。"
+tags: ["ocr", "发票", "财务"]
+capabilities: ["ocr", "invoice", "receipt"]
+enforcement:
+  must_call_when_matched: true
+  require_success_before_final: true
+  intent_keywords: ["ocr", "识别发票", "发票识别", "发票ocr", "识别票据", "提取发票", "识别图片发票"]
+params_schema:
+  type: "object"
+  properties:
+    invoice_path:
+      type: "string"
+      description: "发票文件完整路径，例如 data/uploads/xxx.jpg"
+    output_format:
+      type: "string"
+      description: "输出格式 (json/dict)"
+      default: "json"
+  required:
+    - "invoice_path"
+returns_schema:
+  type: "object"
+  properties:
+    status:
+      type: "string"
+      description: "执行状态 (success/error)"
+    data:
+      type: "object"
+      description: "OCR 结果数据，原文位于 data.text"
+tool_profile:
+  solves:
+    - "从发票图片或 PDF 中提取可汇总、可审计的 OCR 文本"
+  suitable_inputs:
+    - "适合上传后的图片、PDF 和票据扫描件路径"
+  outputs:
+    - "返回 OCR 文本、结构化字段和后续汇总可用的数据"
+  prerequisites:
+    - "输入文件必须已经上传，且路径位于授权目录"
+  common_failure_reasons:
+    - "发票图片模糊、方向错误或文件不存在"
+    - "OCR 依赖未配置或票据格式异常"
+  supports_batch: false
+  has_side_effects: false
+  requires_confirmation: false
+  allowed_path_roots:
+    - "data/uploads"
+    - "data/exports"
+  max_retries: 1
+timeout_sec: 60
+owner: "system"
