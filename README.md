@@ -208,7 +208,6 @@ FlowMind/
 │   └── USER_GUIDE.md
 ├── data/                # 运行时数据目录（数据库、上传文件）
 ├── logs/                # 日志目录
-├── tests/               # 测试目录
 ├── .env.example
 ├── requirements.txt
 ├── run_stable.py        # Registry + Web 稳定启动脚本
@@ -467,14 +466,8 @@ http://127.0.0.1:5173
 
 这些目录属于运行时文件，不应作为源码的一部分进行维护。
 
-## 测试
+## 测试说明
 
-```bash
-# Windows
-.\.venv\Scripts\python.exe -m pytest
+当前公开仓库不附带 `tests/` 目录。
 
-# macOS / Linux
-./.venv/bin/python -m pytest
-```
-
-项目根目录已包含 `pytest.ini`，直接运行测试命令即可自动将仓库根目录加入导入路径。
+如果你在自己的私有分支里补充回归或二次开发测试，项目根目录仍保留了 `pytest.ini`，可以继续按 `pytest` 约定组织测试文件。

@@ -24,3 +24,4 @@ data/bootstrap_admin_password.txt
 data/agent_admin_tokens.json
 registry.db
 registry/*.db
+tests/

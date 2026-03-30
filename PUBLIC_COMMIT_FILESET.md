@@ -26,7 +26,6 @@
 - `client/`
 - `registry/`
 - `utils/`
-- `tests/`
 - `docs/`
 
 ## 建议加入的示例数据
@@ -72,7 +71,6 @@ git add \
   client \
   registry \
   utils \
-  tests \
   docs \
   data/agent_admin_tokens.example.json
 ```
@@ -92,6 +90,6 @@ rg -n "sk-|SECRET_KEY=|SMTP_PASSWORD=|FLOWMIND_AGENT_WS_TOKEN=|AGENT_ADMIN_TOKEN
 
 - 首发优先保证“能跑 + 能看懂 + 不泄密”
 - 不必一开始就把所有运维工程化文件补齐
-- 先让外部用户能理解项目定位、能本地启动、能看测试、能看插件机制
+- 先让外部用户能理解项目定位、能本地启动、能看插件机制
 
 如果这份清单和 `PUBLISHING.md` 都检查通过，FlowMind 的首个公开提交范围就基本清楚了。

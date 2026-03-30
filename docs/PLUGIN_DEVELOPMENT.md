@@ -404,10 +404,9 @@ if __name__ == "__main__":
 
 ### 6.2 集成测试
 
-使用项目的测试框架进行集成测试：
+公开仓库默认不附带 `tests/` 目录；如果你在私有分支或企业内部分发版本中维护测试，可以继续沿用 `pytest` 写集成测试，例如：
 
 ```python
-# tests/test_plugins.py
 import pytest
 import asyncio
 from agent.executor import LocalExecutor

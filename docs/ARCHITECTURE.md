@@ -458,14 +458,9 @@ tail -f logs/invoice_ocr.log
 
 ### 9.3 测试
 
-```bash
-# 运行所有测试
-./.venv/bin/python -m pytest -q
+当前公开仓库不附带 `tests/` 目录。
 
-# 运行特定测试
-./.venv/bin/python -m pytest -q tests/test_web_server.py
-./.venv/bin/python -m pytest -q tests/test_registry_main.py
-```
+如果你在私有分支或企业内部分发版本中维护测试，仍建议基于 `pytest` 保持回归集，并继续复用仓库中的 `pytest.ini`。
 
 ## 10. 架构优化建议
 

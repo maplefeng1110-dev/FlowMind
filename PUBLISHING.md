@@ -12,7 +12,6 @@
 - `client/`
 - `registry/`
 - `utils/`
-- `tests/`
 - `docs/`
 - `README.md`
 - `LICENSE`
@@ -54,18 +53,11 @@ rg -n "sk-|SECRET_KEY=|SMTP_PASSWORD=|FLOWMIND_AGENT_WS_TOKEN=|AGENT_ADMIN_TOKEN
 
 4. 确认只有示例配置文件中保留占位符，不包含真实值。
 5. 确认 `README.md`、`docs/README.md`、`SECURITY.md` 中没有虚假的仓库地址或联系方式。
-6. 运行测试，确保公开版本主线可用：
-
-```bash
-./.venv/bin/python -m pytest -q
-```
-
-7. 手工检查首个 commit 计划包含的文件列表。
+6. 手工检查首个 commit 计划包含的文件列表。
 
 ## 建议的首个公开提交内容
 
 - 核心源码
-- 测试
 - 文档
 - 示例配置
 - 开源治理文件
