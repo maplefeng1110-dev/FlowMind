@@ -60,6 +60,16 @@ from .mcp_transport import SessionBoundSseTransport
 logger = setup_logger("Registry", "registry.log")
 
 app = FastAPI(title="RPA Registry")
+
+# AI routing gateway exposed to Robot Workers (visual locate / structured extract).
+# Additive and self-contained: a failure here must never block registry startup.
+try:
+    from ai.gateway_api import router as ai_gateway_router
+
+    app.include_router(ai_gateway_router)
+except Exception as exc:  # noqa: BLE001
+    logger.warning("AI gateway not mounted: %s", exc)
+
 mcp_server = Server("rpa-registry")
 HEARTBEAT_TIMEOUT_SEC = max(5, int(os.getenv("AGENT_HEARTBEAT_TIMEOUT_SEC", "45")))
 HEARTBEAT_SWEEP_INTERVAL_SEC = max(2, int(os.getenv("AGENT_HEARTBEAT_SWEEP_INTERVAL_SEC", "15")))

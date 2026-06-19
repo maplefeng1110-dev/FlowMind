@@ -14,3 +14,4 @@ requests
 openpyxl
 python-docx
 beautifulsoup4
+httpx
