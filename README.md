@@ -17,6 +17,10 @@ FlowMind 是一个将 RPA（机器人流程自动化）与 AI（人工智能）�
 - ♻️ **常用任务沉淀**：成功对话可保存为“常用任务”，下次一键复用
 - ⏰ **定时调度中心**：可把常用任务沉淀成一次性、固定间隔或每日计划，并查看最近执行记录
 - 📦 **统一导出中心**：任务、常用任务、调度计划、执行记录和当前对话都可按标准格式下载
+- 👁️ **视觉自愈 (Self-Healing)**：DSL 流程中 selector 失效时，自动截图交给视觉大模型重新定位并点击，降低 UI 改版导致的维护成本
+- 🏠 **本地优先混合算力**：AI 网关优先调用本地模型（Ollama / vLLM），仅复杂任务溢出云端，控制长期 API 成本
+- 🧩 **扩展接管浏览器**：通过浏览器扩展 + Native Messaging Host 直接操作 DOM（无 CDP / Playwright），可接管已登录会话、规避反爬检测
+- 🧱 **可选分布式**：配置 Redis 后，多 Registry 实例可共享在线表、跨实例派发与回传结果、并使用分布式锁
 
 ## 功能概览
 
@@ -36,6 +40,10 @@ FlowMind 是一个将 RPA（机器人流程自动化）与 AI（人工智能）�
 - 常用任务保存与复用
 - 定时调度中心与任务计划管理
 - 统一导出中心（JSON / CSV / Markdown）
+- RPA 流程引擎：YAML/JSON DSL（goto / click / type / scroll / extract_text / ai_click / ai_extract / save_db）
+- 浏览器扩展桥（browser_bridge）+ 真实 Chrome 端到端验收脚本
+- AI 混合路由网关：视觉定位（`/ai/locate`）、结构化提取（`/ai/extract`）、本地优先路由（`/ai/providers`）
+- 可选 Redis 分布式后端（多 Registry 实例协调）
 
 ## 界面预览
 
@@ -173,9 +181,11 @@ FlowMind 采用分布式架构，分为三个核心组件：
 ```
 
 **组件说明**：
-- **Registry** (`/registry/`): 注册中心和 MCP 工具服务
-- **Agent** (`/agent/`): 本地插件执行器
+- **Registry** (`/registry/`): 注册中心、MCP 工具服务、AI 路由网关（`/ai/*`），可选 Redis 分布式后端（`kv.py` / `broker.py`）
+- **Agent** (`/agent/`): 本地插件执行器，含 `rpa_flow` 流程引擎插件
 - **Client** (`/client/`): Web 聊天界面和 AI 调用层
+- **AI 层** (`/ai/`): 本地优先混合路由、视觉定位、JSON 结构化提取
+- **浏览器桥** (`/browser_bridge/`): 浏览器扩展 (MV3) + Native Messaging Host，content script 原生操作 DOM（无 CDP），可接管已登录标签页
 
 ## 目录结构
 
@@ -186,17 +196,26 @@ FlowMind/
 │   ├── main.py          # Agent 启动入口
 │   ├── executor.py      # 插件执行器
 │   ├── plugin_scaffold.py # Agent 自有插件脚手架实现
-│   └── plugins/         # RPA 插件目录
+│   └── plugins/         # RPA 插件目录（含 rpa_flow 流程引擎）
 ├── client/
 │   ├── web_server.py    # Web 服务器
 │   ├── web_server_chat.py  # 聊天编排
 │   ├── ai_manager.py    # AI 服务管理器
 │   └── web/             # 前端资源
 ├── registry/
-│   ├── main.py          # Registry 服务器
+│   ├── main.py          # Registry 服务器（含 AI 网关 /ai/*）
 │   ├── db.py            # 数据库操作
-│   ├── dispatch.py      # 任务调度引擎
+│   ├── dispatch.py      # 任务调度引擎（基于 broker）
+│   ├── broker.py        # 分布式 broker：锁 / 结果总线 / 任务路由
+│   ├── kv.py            # KV+PubSub 抽象（Memory / Redis）
 │   └── mcp_transport.py # MCP 传输层
+├── ai/                  # 本地优先 AI 路由 / 视觉定位 / 结构化提取
+│   └── gateway_api.py   # 暴露给 Worker 的 /ai/* 网关
+├── browser_bridge/      # 浏览器扩展 + Native Messaging Host（执行端浏览器控制）
+│   ├── extension/       # MV3 扩展（background / content script）
+│   └── native_host/     # flowmind_host.py + 清单模板
+├── scripts/
+│   └── e2e_chrome_acceptance.py  # 真实 Chrome 端到端验收脚本
 ├── utils/
 │   ├── logger.py        # 日志工具
 │   ├── paths.py         # 路径工具
