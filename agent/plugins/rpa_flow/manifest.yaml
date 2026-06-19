@@ -1,0 +1,61 @@
+id: "rpa_flow"
+version: "0.1.0"
+description: "执行 YAML/JSON 定义的 RPA 流程：通过浏览器扩展 + Native Messaging Host 直接操作 DOM（无 CDP/Playwright，可接管已登录标签页）；selector 失效时经 AI 网关视觉自愈（ai_click），并可结构化提取（ai_extract）。"
+tags: ["RPA", "自动化", "浏览器", "流程"]
+capabilities: ["browser", "rpa", "dsl", "self_heal"]
+enforcement:
+  must_call_when_matched: false
+  require_success_before_final: true
+  intent_keywords: ["执行流程", "运行流程", "RPA", "网页自动化", "自动登录", "自动抓取", "流程编排"]
+params_schema:
+  type: "object"
+  properties:
+    flow_path:
+      type: "string"
+      description: "YAML/JSON 流程文件路径；与 flow 二选一"
+    flow:
+      type: "object"
+      description: "内联流程定义；与 flow_path 二选一"
+    env:
+      type: "object"
+      description: "用于 ${env.X} 变量替换的键值，例如账号密码"
+    gateway_url:
+      type: "string"
+      description: "AI 路由网关地址，提供后才启用 ai_click/ai_extract 视觉自愈"
+    db_path:
+      type: "string"
+      description: "save_db 动作写入的 SQLite 路径，默认 data/rpa_results.db"
+    bridge_host:
+      type: "string"
+      description: "浏览器桥接 WebSocket 监听地址，默认 127.0.0.1（仅本机）"
+    bridge_port:
+      type: "integer"
+      description: "浏览器桥接 WebSocket 端口，默认 8777，Native Messaging Host 回连此端口"
+  required: []
+returns_schema:
+  type: "object"
+  properties:
+    status:
+      type: "string"
+      description: "执行状态"
+    data:
+      type: "object"
+      description: "提取变量(vars) 与逐步执行日志(steps)，失败时附现场快照"
+tool_profile:
+  solves:
+    - "按 YAML 流程完成登录、点击、输入、滚动、抓取、入库等浏览器自动化"
+  suitable_inputs:
+    - "一份定义 steps 的 YAML/JSON 流程，以及可选的 env 变量"
+  outputs:
+    - "返回提取变量(vars)与逐步执行日志(steps)，失败时附现场快照引用"
+  prerequisites:
+    - "目标机已安装 FlowMind 浏览器扩展与 Native Messaging Host 并保持浏览器开启；ai_* 动作需配置 gateway_url"
+  common_failure_reasons:
+    - "目标元素无法定位且未启用自愈，或浏览器启动失败"
+  supports_batch: false
+  has_side_effects: true
+  requires_confirmation: false
+  allowed_path_roots: []
+  max_retries: 0
+timeout_sec: 120
+owner: "system"

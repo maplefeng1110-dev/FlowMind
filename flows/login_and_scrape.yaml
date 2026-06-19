@@ -1,0 +1,16 @@
+# Example rpa_flow definition (PRD 6.1 acceptance: edit only YAML, no Python).
+# Logs into the mock site, scrapes the order list, and stores rows in SQLite.
+name: login_and_scrape
+context:
+  incognito: true
+  headless: true
+  viewport: { width: 1280, height: 800 }
+
+steps:
+  - { action: goto, url: "${env.base_url}/login.html" }
+  - { action: type, selector: "#username", text: "${env.user}", heal: false }
+  - { action: type, selector: "#password", text: "${env.password}", heal: false }
+  # ai_click is used here so a renamed/moved button still heals via the AI gateway.
+  - { action: ai_click, selector: "#login-btn", intent: "点击登录按钮" }
+  - { action: extract_text, selector: "#orders .order", save_as: "orders" }
+  - { action: save_db, table: "orders", from: "orders" }

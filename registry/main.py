@@ -60,6 +60,16 @@ from .mcp_transport import SessionBoundSseTransport
 logger = setup_logger("Registry", "registry.log")
 
 app = FastAPI(title="RPA Registry")
+
+# AI routing gateway exposed to Robot Workers (visual locate / structured extract).
+# Additive and self-contained: a failure here must never block registry startup.
+try:
+    from ai.gateway_api import router as ai_gateway_router
+
+    app.include_router(ai_gateway_router)
+except Exception as exc:  # noqa: BLE001
+    logger.warning("AI gateway not mounted: %s", exc)
+
 mcp_server = Server("rpa-registry")
 HEARTBEAT_TIMEOUT_SEC = max(5, int(os.getenv("AGENT_HEARTBEAT_TIMEOUT_SEC", "45")))
 HEARTBEAT_SWEEP_INTERVAL_SEC = max(2, int(os.getenv("AGENT_HEARTBEAT_SWEEP_INTERVAL_SEC", "15")))
@@ -889,8 +899,17 @@ transport = SessionBoundSseTransport("/mcp/messages")
 async def _disconnect_stale_machines_once():
     stale_machine_ids = await get_stale_online_machine_ids(HEARTBEAT_TIMEOUT_SEC)
     for machine_id in stale_machine_ids:
-        logger.warning("Machine heartbeat timed out, disconnecting: %s", machine_id)
-        await engine.disconnect(machine_id)
+        # In a multi-instance deployment, only one instance should sweep a given
+        # machine. The distributed lock makes this safe (a no-op fast path under
+        # MemoryKV / single instance).
+        token = await engine.broker.lock.acquire("stale:" + machine_id, ttl_ms=5000)
+        if token is None:
+            continue
+        try:
+            logger.warning("Machine heartbeat timed out, disconnecting: %s", machine_id)
+            await engine.disconnect(machine_id)
+        finally:
+            await engine.broker.lock.release("stale:" + machine_id, token)
 
 
 async def _heartbeat_monitor_loop():
@@ -906,6 +925,8 @@ async def _heartbeat_monitor_loop():
 async def lifespan(_: FastAPI):
     logger.info("Initializing registry database...")
     await init_db()
+    await engine.start()
+    logger.info("Dispatch broker started (instance %s)", engine.instance_id)
     heartbeat_task = asyncio.create_task(_heartbeat_monitor_loop())
     try:
         yield
@@ -913,6 +934,7 @@ async def lifespan(_: FastAPI):
         heartbeat_task.cancel()
         with suppress(asyncio.CancelledError):
             await heartbeat_task
+        await engine.stop()
         logger.info("Shutting down registry...")
 
 

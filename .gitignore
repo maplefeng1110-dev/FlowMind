@@ -25,3 +25,4 @@ data/agent_admin_tokens.json
 registry.db
 registry/*.db
 tests/
+browser_bridge/.e2e/

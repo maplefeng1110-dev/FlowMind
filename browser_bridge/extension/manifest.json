@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "FlowMind RPA Bridge",
+  "version": "0.1.0",
+  "description": "Drives the active tab for FlowMind RPA via a content script (no CDP/Playwright). Takes over already-logged-in sessions.",
+  "permissions": ["nativeMessaging", "tabs", "activeTab", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

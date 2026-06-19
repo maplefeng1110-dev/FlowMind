@@ -1,0 +1,9 @@
+{
+  "name": "com.flowmind.host",
+  "description": "FlowMind RPA native messaging host",
+  "path": "/ABSOLUTE/PATH/TO/browser_bridge/native_host/run_host.sh",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://REPLACE_WITH_YOUR_EXTENSION_ID/"
+  ]
+}
