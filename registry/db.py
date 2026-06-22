@@ -1041,9 +1041,24 @@ async def get_task(task_id: str, owner_user_id: Optional[str] = None, include_al
             return task
 
 
-async def list_tasks(limit: int = 50, owner_user_id: Optional[str] = None, include_all: bool = False) -> List[dict]:
+async def list_tasks(
+    limit: int = 50,
+    owner_user_id: Optional[str] = None,
+    include_all: bool = False,
+    keyword: Optional[str] = None,
+    status: Optional[str] = None,
+) -> List[dict]:
     safe_limit = max(1, min(int(limit or 50), 200))
     owner_clause, owner_params = _build_owner_clause(owner_user_id, include_all, "tasks.owner_user_id")
+    filter_clause = ""
+    filter_params: list = []
+    if status:
+        filter_clause += " AND tasks.status = ?"
+        filter_params.append(str(status))
+    if keyword:
+        like = f"%{keyword}%"
+        filter_clause += " AND (tasks.rpa_id LIKE ? OR tasks.result LIKE ? OR tasks.conversation_title LIKE ?)"
+        filter_params.extend([like, like, like])
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -1051,11 +1066,11 @@ async def list_tasks(limit: int = 50, owner_user_id: Optional[str] = None, inclu
             SELECT tasks.*, machines.status AS machine_status, machines.last_heartbeat AS machine_last_heartbeat
             FROM tasks
             LEFT JOIN machines ON tasks.machine_id = machines.id
-            WHERE 1 = 1{owner_clause}
+            WHERE 1 = 1{owner_clause}{filter_clause}
             ORDER BY tasks.updated_at DESC, tasks.created_at DESC, tasks.rowid DESC
             LIMIT ?
             """,
-            (*owner_params, safe_limit),
+            (*owner_params, *filter_params, safe_limit),
         ) as cursor:
             rows = await cursor.fetchall()
 

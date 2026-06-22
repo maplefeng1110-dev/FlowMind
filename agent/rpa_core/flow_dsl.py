@@ -53,6 +53,8 @@ class Step(BaseModel):
     timeout_ms: int = 15000
     optional: bool = False  # failure does not abort the flow
     heal: bool = True  # allow ai_click fallback when a selector fails
+    retries: int = 0  # extra attempts on failure (the whole step, incl. self-heal)
+    retry_delay_ms: int = 200  # backoff between attempts
 
     def describe(self) -> str:
         target = self.selector or self.url or self.intent or self.table or ""

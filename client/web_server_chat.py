@@ -1,6 +1,7 @@
 """聊天编排模块：负责半强制路由下的流式/非流式对话循环。"""
 
 import json
+import shlex
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from mcp import ClientSession
@@ -48,6 +49,120 @@ def _parse_tool_arguments(raw_arguments: str) -> Dict[str, Any]:
     except Exception:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+# ==================== slash 命令：命令式直达插件 ====================
+def _last_user_text(messages: List[Dict[str, Any]]) -> str:
+    for message in reversed(messages or []):
+        if message.get("role") == "user":
+            content = message.get("content")
+            if isinstance(content, str):
+                return content.strip()
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        return part["text"].strip()
+    return ""
+
+
+def _freeform_to_params(text: str, rpa_meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """自由文本映射到该插件 params_schema 的首个必填(或首个)参数。"""
+    schema = (rpa_meta or {}).get("params_schema") or {}
+    properties = schema.get("properties") or {}
+    required = schema.get("required") or []
+    key = required[0] if required else next(iter(properties), None)
+    return {key: text} if key else {"input": text}
+
+
+def _parse_slash_command(text: str, rpa_by_id: Dict[str, Any]) -> Optional[tuple]:
+    """解析 `/<rpa_id> 参数`：参数支持 JSON、key=value、或自由文本。"""
+    if not text.startswith("/"):
+        return None
+    body = text[1:].strip()
+    if not body:
+        return ("", {})
+    head, _, rest = body.partition(" ")
+    rpa_id = head.strip()
+    rest = rest.strip()
+    params: Dict[str, Any] = {}
+    if rest:
+        if rest.startswith("{"):
+            try:
+                loaded = json.loads(rest)
+                params = loaded if isinstance(loaded, dict) else {}
+            except Exception:
+                params = {}
+        elif "=" in rest:
+            try:
+                tokens = shlex.split(rest)
+            except Exception:
+                tokens = rest.split()
+            for token in tokens:
+                if "=" in token:
+                    key, value = token.split("=", 1)
+                    params[key.strip()] = value.strip()
+            if not params:
+                params = _freeform_to_params(rest, rpa_by_id.get(rpa_id))
+        else:
+            params = _freeform_to_params(rest, rpa_by_id.get(rpa_id))
+    return (rpa_id, params)
+
+
+def _slash_reply(text: str, provider: str, emit_tool_events: bool, tool_trace=None):
+    if emit_tool_events:
+        async def _gen() -> AsyncIterator[str]:
+            yield f"data: {json.dumps({'content': text}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return _gen()
+    return {"response": text, "provider": provider, "tool_trace": tool_trace or []}
+
+
+async def _maybe_run_slash_command(
+    messages: List[Dict[str, Any]],
+    provider: str,
+    allowed_rpa_ids: Optional[set],
+    session_token: Optional[str],
+    emit_tool_events: bool,
+):
+    """`/<插件id> 参数` 绕过 AI 直接执行指定插件；非 slash 消息返回 None。"""
+    text = _last_user_text(messages)
+    if not text.startswith("/"):
+        return None
+
+    async with sse_client(MCP_SSE_URL, headers=build_internal_api_headers(session_token=session_token)) as streams:
+        async with ClientSession(streams[0], streams[1]) as session:
+            await session.initialize()
+            registered = _filter_registered_rpas_for_allowed_ids(
+                await _fetch_registered_rpas_from_session(session, available_only=False),
+                allowed_rpa_ids,
+            )
+            rpa_by_id = {
+                str(rpa["id"]): rpa
+                for rpa in (registered or [])
+                if isinstance(rpa, dict) and rpa.get("id")
+            }
+            available_ids = _extract_available_tool_ids(await _fetch_available_tools(session))
+            async_ids = _collect_async_tool_ids(registered)
+
+            rpa_id, params = _parse_slash_command(text, rpa_by_id)
+            available_hint = ", ".join(sorted(rpa_by_id)) or "（无）"
+            if not rpa_id:
+                return _slash_reply(
+                    "命令格式：/<插件id> 参数，例如 `/web_query query=FlowMind`。可用：" + available_hint,
+                    provider, emit_tool_events,
+                )
+            if rpa_id not in rpa_by_id:
+                return _slash_reply(f"未找到插件「{rpa_id}」。可用：" + available_hint, provider, emit_tool_events)
+            if rpa_id not in available_ids:
+                return _slash_reply(f"插件「{rpa_id}」当前离线（没有可用执行机）。", provider, emit_tool_events)
+
+            result_text, status, task_id = await _execute_tool_call(
+                session, rpa_id, params, {}, async_ids, None, session_token,
+            )
+
+    reply = f"⌘ 直接执行 `{rpa_id}` · {status}\n\n{result_text or '(无输出)'}"
+    return _slash_reply(reply, provider, emit_tool_events, tool_trace=[{"name": rpa_id, "status": status, "task_id": task_id}])
 
 
 def _serialize_tool_calls(tool_calls: List[Any]) -> List[Dict[str, Any]]:
@@ -434,6 +549,11 @@ async def chat_with_mcp(
     """非流式聊天入口，返回最终回复文本。"""
 
     try:
+        slash = await _maybe_run_slash_command(
+            messages, provider, allowed_rpa_ids, session_token, emit_tool_events=False
+        )
+        if slash is not None:
+            return slash
         return await _run_chat_loop(
             messages,
             provider,
@@ -459,6 +579,11 @@ async def stream_chat_with_mcp(
     """流式聊天入口，按 SSE 事件格式持续输出内容和工具轨迹。"""
 
     try:
+        slash = await _maybe_run_slash_command(
+            messages, provider, allowed_rpa_ids, session_token, emit_tool_events=True
+        )
+        if slash is not None:
+            return slash
         return await _run_chat_loop(
             messages,
             provider,

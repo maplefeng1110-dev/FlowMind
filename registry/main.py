@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import contextvars
 import json
 import os
@@ -8,9 +9,13 @@ from typing import Any, Dict, List, Optional
 
 import mcp.types as types
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from mcp.server import Server
 from pydantic import BaseModel
 from starlette.responses import Response
+
+from utils.paths import DATA_DIR
 
 from registry.db import (
     claim_due_task_schedules,
@@ -53,6 +58,7 @@ from registry.db import (
 )
 from utils.internal_api import INTERNAL_API_HEADER, USER_SESSION_HEADER, has_internal_api_token, validate_internal_api_token
 from utils.logger import setup_logger
+from utils.paths import DATA_DIR
 
 from .dispatch import TERMINAL_TASK_STATUSES, engine
 from .mcp_transport import SessionBoundSseTransport
@@ -69,6 +75,68 @@ try:
     app.include_router(ai_gateway_router)
 except Exception as exc:  # noqa: BLE001
     logger.warning("AI gateway not mounted: %s", exc)
+
+# Failure snapshots uploaded by workers, so artifacts from remote machines are
+# centralized on the Orchestrator and viewable from the audit UI.
+ARTIFACTS_DIR = DATA_DIR / "artifacts"
+ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/artifacts", StaticFiles(directory=str(ARTIFACTS_DIR)), name="artifacts")
+
+
+class ArtifactUpload(BaseModel):
+    run_id: str
+    index: int
+    kind: str
+    content_b64: str
+
+
+@app.post("/artifacts")
+async def upload_artifact(payload: ArtifactUpload):
+    run_id = "".join(ch for ch in payload.run_id if ch.isalnum() or ch in "-_") or "run"
+    target = ARTIFACTS_DIR / run_id
+    target.mkdir(parents=True, exist_ok=True)
+    ext = {"png": "png", "html": "html"}.get(payload.kind, "bin")
+    name = f"step{int(payload.index)}.{ext}"
+    (target / name).write_bytes(base64.b64decode(payload.content_b64))
+    return {"url": f"/artifacts/{run_id}/{name}"}
+
+
+# ---- Failure-snapshot artifacts (uploaded by workers, served back for audit) ----
+ARTIFACTS_DIR = DATA_DIR / "artifacts"
+
+
+class ArtifactUpload(BaseModel):
+    run_id: str
+    index: int = 0
+    kind: str = "bin"
+    content_b64: str
+
+
+def _safe_segment(value: str) -> str:
+    return "".join(ch for ch in str(value) if ch.isalnum() or ch in "-_") or "x"
+
+
+@app.post("/artifacts")
+async def upload_artifact(payload: ArtifactUpload):
+    run_dir = ARTIFACTS_DIR / _safe_segment(payload.run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    ext = {"png": "png", "html": "html"}.get(payload.kind, "bin")
+    name = f"step{int(payload.index)}.{ext}"
+    try:
+        (run_dir / name).write_bytes(base64.b64decode(payload.content_b64))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"invalid artifact content: {exc}") from exc
+    return {"url": f"/artifacts/{_safe_segment(payload.run_id)}/{name}"}
+
+
+@app.get("/artifacts/{run_id}/{name}")
+async def get_artifact(run_id: str, name: str):
+    safe_name = name.replace("/", "").replace("\\", "").replace("..", "")
+    path = ARTIFACTS_DIR / _safe_segment(run_id) / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return FileResponse(str(path))
+
 
 mcp_server = Server("rpa-registry")
 HEARTBEAT_TIMEOUT_SEC = max(5, int(os.getenv("AGENT_HEARTBEAT_TIMEOUT_SEC", "45")))
@@ -471,9 +539,16 @@ async def check_task(task_id: str, request: Request):
 
 
 @app.get("/tasks")
-async def get_tasks(limit: int = 50, request: Request = None):
+async def get_tasks(
+    limit: int = 50,
+    keyword: Optional[str] = None,
+    status: Optional[str] = None,
+    request: Request = None,
+):
     current_user = await _resolve_request_user(request, require_user=True)
-    return await list_tasks(limit=limit, **_build_owner_scope(current_user))
+    return await list_tasks(
+        limit=limit, keyword=keyword, status=status, **_build_owner_scope(current_user)
+    )
 
 
 @app.delete("/task/{task_id}")
@@ -1001,4 +1076,9 @@ async def ws_endpoint(ws: WebSocket):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("registry.main:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run(
+        "registry.main:app",
+        host=os.getenv("REGISTRY_HOST", "127.0.0.1"),
+        port=int(os.getenv("REGISTRY_PORT", "8000")),
+        reload=False,
+    )

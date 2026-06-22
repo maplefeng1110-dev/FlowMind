@@ -12,6 +12,8 @@ from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from utils.paths import DATA_DIR
+
 from client.agent_admin_token_store import get_agent_admin_token_store_health, load_agent_admin_token_store
 from client.ai_manager import ai_manager
 from client.export_center import build_export_bundle
@@ -470,6 +472,11 @@ async def upload_file(file: UploadFile = File(...), http_request: Request = None
 if (WEB_PATH / "static").exists():
     app.mount("/static", StaticFiles(directory=str(WEB_PATH / "static")), name="static")
 
+# Serve worker-uploaded failure snapshots (shared /data volume with the Registry).
+_artifacts_dir = DATA_DIR / "artifacts"
+_artifacts_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/api/artifacts", StaticFiles(directory=str(_artifacts_dir)), name="artifacts")
+
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest, http_request: Request = None):
@@ -545,11 +552,36 @@ async def proxy_task(task_id: str, http_request: Request = None):
 
 
 @app.get("/api/tasks")
-async def proxy_tasks(limit: int = 30, http_request: Request = None):
-    """查询任务中心的任务列表。"""
+async def proxy_tasks(
+    limit: int = 30,
+    keyword: Optional[str] = None,
+    status: Optional[str] = None,
+    http_request: Request = None,
+):
+    """查询任务中心的任务列表（支持 keyword/status 搜索）。"""
 
     await _resolve_route_user(http_request)
-    return await _proxy_registry_request(http_request, "GET", "/tasks", params={"limit": limit})
+    params: Dict[str, Any] = {"limit": limit}
+    if keyword:
+        params["keyword"] = keyword
+    if status:
+        params["status"] = status
+    return await _proxy_registry_request(http_request, "GET", "/tasks", params=params)
+
+
+@app.get("/api/artifacts/{run_id}/{name}")
+async def proxy_artifact(run_id: str, name: str, http_request: Request = None):
+    """把 worker 上传到 Registry 的失败快照(截图/HTML)代理给前端展示。"""
+
+    await _resolve_route_user(http_request)
+    registry_url = os.getenv("REGISTRY_API_URL", "http://127.0.0.1:8000")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.get(f"{registry_url}/artifacts/{run_id}/{name}")
+    return Response(
+        content=resp.content,
+        media_type=resp.headers.get("content-type", "application/octet-stream"),
+        status_code=resp.status_code,
+    )
 
 
 @app.delete("/api/task/{task_id}")
@@ -798,4 +830,9 @@ if __name__ == "__main__":
     logger.info("Web UI available at: http://localhost:5173")
     logger.info("Current Provider: %s", ai_manager.get_preferred_provider())
     logger.info("=" * 60)
-    uvicorn.run("client.web_server:app", host="127.0.0.1", port=5173, reload=False)
+    uvicorn.run(
+        "client.web_server:app",
+        host=os.getenv("WEB_HOST", "127.0.0.1"),
+        port=int(os.getenv("WEB_PORT", "5173")),
+        reload=False,
+    )

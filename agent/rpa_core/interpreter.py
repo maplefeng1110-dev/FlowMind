@@ -37,41 +37,73 @@ class FlowRunner:
         self.vars: Dict[str, Any] = {}
         self.log: List[Dict[str, Any]] = []
 
-    async def run(self, flow: Flow) -> Dict[str, Any]:
+    async def run(
+        self,
+        flow: Flow,
+        *,
+        start_index: int = 0,
+        variables: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Execute the flow. ``start_index`` + ``variables`` resume a previous run
+        from a failed step with its accumulated state (see ``failed_index`` in the
+        returned result). Each step retries up to ``step.retries`` times."""
+        if variables:
+            self.vars.update(variables)
+
         status = "success"
         error: Optional[str] = None
+        failed_index: Optional[int] = None
 
         for index, step in enumerate(flow.steps):
+            if index < start_index:
+                continue
+
             entry: Dict[str, Any] = {
                 "index": index,
                 "action": step.action,
                 "target": step.describe(),
             }
             started = time.monotonic()
-            try:
-                healed = await self._dispatch(step)
-                entry["status"] = "success"
-                if healed:
-                    entry["healed"] = True
-            except Exception as exc:  # noqa: BLE001 - every step failure is reported
-                entry["status"] = "error"
-                entry["error"] = str(exc)
-                snapshot = await self._capture_snapshot(index, step, exc)
-                if snapshot:
-                    entry["snapshot"] = snapshot
-                if step.optional:
-                    entry["skipped"] = True
-                else:
-                    entry["ms"] = round((time.monotonic() - started) * 1000)
-                    self.log.append(entry)
-                    status, error = "error", str(exc)
+            attempts = max(1, step.retries + 1)
+            outcome = "failed"
+
+            for attempt in range(attempts):
+                try:
+                    healed = await self._dispatch(step)
+                    entry["status"] = "success"
+                    if healed:
+                        entry["healed"] = True
+                    if attempt:
+                        entry["attempts"] = attempt + 1
+                    outcome = "success"
                     break
-            entry.setdefault("ms", round((time.monotonic() - started) * 1000))
+                except Exception as exc:  # noqa: BLE001 - every step failure is reported
+                    if attempt < attempts - 1:
+                        await asyncio.sleep(max(0, step.retry_delay_ms) / 1000)
+                        continue
+                    entry["status"] = "error"
+                    entry["error"] = str(exc)
+                    if attempts > 1:
+                        entry["attempts"] = attempts
+                    snapshot = await self._capture_snapshot(index, step, exc)
+                    if snapshot:
+                        entry["snapshot"] = snapshot
+                    outcome = "skipped" if step.optional else "failed"
+
+            entry["ms"] = round((time.monotonic() - started) * 1000)
+            if outcome == "skipped":
+                entry["skipped"] = True
             self.log.append(entry)
+
+            if outcome == "failed":
+                status, error, failed_index = "error", entry["error"], index
+                break
 
         result: Dict[str, Any] = {"status": status, "vars": self.vars, "steps": self.log}
         if error:
             result["error"] = error
+        if failed_index is not None:
+            result["failed_index"] = failed_index
         return result
 
     # -- dispatch -----------------------------------------------------------

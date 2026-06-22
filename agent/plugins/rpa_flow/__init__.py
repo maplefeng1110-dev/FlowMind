@@ -15,13 +15,13 @@ from typing import Optional
 
 from utils.plugin_result import error_result, success_result
 
-from .ai_gateway import AIGatewayClient
-from .driver import ExtensionDriver
-from .flow_dsl import load_flow
-from .interpreter import FlowRunner
-from .results_db import SqliteResultWriter
-from .snapshots import LocalSnapshotSink
-from .transport import BridgeServerTransport
+from agent.rpa_core.ai_gateway import AIGatewayClient
+from agent.rpa_core.driver import ExtensionDriver
+from agent.rpa_core.flow_dsl import load_flow
+from agent.rpa_core.interpreter import FlowRunner
+from agent.rpa_core.results_db import SqliteResultWriter
+from agent.rpa_core.snapshots import LocalSnapshotSink, RemoteSnapshotSink, RemoteSnapshotSink
+from agent.rpa_core.transport import BridgeServerTransport
 
 
 def _bridge_port(explicit: Optional[int]) -> int:
@@ -56,7 +56,13 @@ async def run(
     resolved_gateway = gateway_url or os.getenv("FLOWMIND_AI_GATEWAY_URL")
     ai = AIGatewayClient(resolved_gateway) if resolved_gateway else None
     db = SqliteResultWriter(db_path or os.getenv("RPA_RESULTS_DB", "data/rpa_results.db"))
-    snapshots = LocalSnapshotSink(os.getenv("RPA_SNAPSHOT_DIR", "data/snapshots"))
+    snapshot_dir = os.getenv("RPA_SNAPSHOT_DIR", "data/snapshots")
+    artifacts_url = os.getenv("FLOWMIND_ARTIFACTS_URL")
+    snapshots = (
+        RemoteSnapshotSink(artifacts_url, fallback_dir=snapshot_dir)
+        if artifacts_url
+        else LocalSnapshotSink(snapshot_dir)
+    )
 
     try:
         await driver.start()
