@@ -11,9 +11,34 @@ from logging.handlers import RotatingFileHandler
 
 from utils.paths import LOG_DIR, ensure_runtime_dirs
 
-_LOG_SINK_URL = os.getenv("FLOWMIND_LOG_SINK_URL")
-_LOG_SOURCE = os.getenv("MACHINE_ID") or os.getenv("FLOWMIND_LOG_SOURCE") or socket.gethostname()
-_REMOTE_LEVEL = getattr(logging, str(os.getenv("FLOWMIND_LOG_REMOTE_LEVEL", "WARNING")).upper(), logging.WARNING)
+
+def _env_cfg(name, default=None):
+    """Resolve a setting from the process environment, falling back to the project's
+    .env files *without* mutating os.environ. The agent imports this module before it
+    calls load_dotenv(), so reading os.getenv() alone would miss FLOWMIND_LOG_SINK_URL;
+    this fallback keeps central logging working regardless of import order."""
+    val = os.getenv(name)
+    if val:
+        return val
+    try:
+        from pathlib import Path
+
+        from dotenv import dotenv_values
+
+        root = Path(__file__).resolve().parent.parent
+        for env_path in (root / ".env", root / "agent" / ".env"):
+            if env_path.exists():
+                file_val = dotenv_values(env_path).get(name)
+                if file_val:
+                    return file_val
+    except Exception:
+        pass
+    return default
+
+
+_LOG_SINK_URL = _env_cfg("FLOWMIND_LOG_SINK_URL")
+_LOG_SOURCE = _env_cfg("MACHINE_ID") or _env_cfg("FLOWMIND_LOG_SOURCE") or socket.gethostname()
+_REMOTE_LEVEL = getattr(logging, str(_env_cfg("FLOWMIND_LOG_REMOTE_LEVEL", "WARNING")).upper(), logging.WARNING)
 
 
 class _CentralLogHandler(logging.Handler):
