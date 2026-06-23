@@ -12,6 +12,7 @@ const state = {
     tools: [],
     toolsLoadedAt: 0,
     tasks: [],
+    logs: [],
     taskFilterConversationId: null,
     taskSearchKeyword: "",
     taskStatusFilter: "",
@@ -98,6 +99,11 @@ const elements = {
     exportList: document.getElementById("exportList"),
     exportHint: document.getElementById("exportHint"),
     adminBtn: document.getElementById("adminBtn"),
+    logsBtn: document.getElementById("logsBtn"),
+    logsModal: document.getElementById("logsModal"),
+    logList: document.getElementById("logList"),
+    closeLogsModal: document.getElementById("closeLogsModal"),
+    refreshLogsBtn: document.getElementById("refreshLogsBtn"),
     adminModal: document.getElementById("adminModal"),
     refreshAdminBtn: document.getElementById("refreshAdminBtn"),
     closeAdminModal: document.getElementById("closeAdminModal"),
@@ -190,6 +196,7 @@ function updateUserPanel() {
         elements.currentUserRole.textContent = "请先登录继续使用";
         elements.logoutBtn.style.display = "none";
         elements.adminBtn.style.display = "none";
+        if (elements.logsBtn) elements.logsBtn.style.display = "none";
         return;
     }
 
@@ -197,6 +204,7 @@ function updateUserPanel() {
     elements.currentUserRole.textContent = `${formatUserRole(user.role)} · ${user.username}`;
     elements.logoutBtn.style.display = "inline-flex";
     elements.adminBtn.style.display = isAdminUser() ? "inline-flex" : "none";
+    if (elements.logsBtn) elements.logsBtn.style.display = isAdminUser() ? "inline-flex" : "none";
 }
 
 function showAuthScreen(message = "") {
@@ -2832,7 +2840,11 @@ function renderRpaSnapshot(snapshot) {
 
 function renderRpaSteps(task) {
     const result = task && typeof task.result === "object" ? task.result : null;
-    const steps = result && Array.isArray(result.steps) ? result.steps : [];
+    // rpa_flow wraps its output in success_result(data=...), so steps live at
+    // result.data.steps; fall back to result.steps for unwrapped results.
+    const data = result && typeof result.data === "object" && result.data ? result.data : null;
+    const steps = (data && Array.isArray(data.steps)) ? data.steps
+        : (result && Array.isArray(result.steps)) ? result.steps : [];
     if (steps.length === 0) {
         return "";
     }
@@ -3486,6 +3498,74 @@ elements.machinesModal.onclick = (event) => {
         elements.machinesModal.classList.remove("active");
     }
 };
+let _logKeyword = "";
+let _logLevel = "";
+let _logSearchTimer = 0;
+
+async function loadLogs(limit = 200) {
+    try {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (_logKeyword) params.set("keyword", _logKeyword);
+        if (_logLevel) params.set("level", _logLevel);
+        const response = await fetch(`/api/logs?${params.toString()}`);
+        const logs = await response.json();
+        state.logs = Array.isArray(logs) ? logs : [];
+    } catch (error) {
+        console.error("Failed to load logs:", error);
+        state.logs = [];
+    }
+}
+
+function renderLogs() {
+    if (!elements.logList) return;
+    const logs = state.logs || [];
+    if (logs.length === 0) {
+        elements.logList.innerHTML = `<div class="task-empty-state"><div class="task-empty-title">暂无日志</div><div class="task-empty-description">给各进程配置 FLOWMIND_LOG_SINK_URL 后，WARN+ 日志会汇聚到这里。</div></div>`;
+        return;
+    }
+    elements.logList.innerHTML = logs.map((log) => {
+        const level = String(log.level || "").toUpperCase();
+        const cls = level.toLowerCase();
+        return `
+            <div class="log-row ${cls}">
+                <span class="log-level ${cls}">${escapeHtml(level)}</span>
+                <span class="log-ts">${escapeHtml(log.ts || "")}</span>
+                <span class="log-source">${escapeHtml(log.source || "")}</span>
+                <span class="log-logger">${escapeHtml(log.logger || "")}</span>
+                <div class="log-message">${escapeHtml(log.message || "")}</div>
+            </div>
+        `;
+    }).join("");
+}
+
+async function refreshLogsCenter() {
+    await loadLogs();
+    renderLogs();
+}
+
+async function openLogsCenter() {
+    elements.logsModal.classList.add("active");
+    await refreshLogsCenter();
+}
+
+function onLogSearchInput(value) {
+    _logKeyword = (value || "").trim();
+    clearTimeout(_logSearchTimer);
+    _logSearchTimer = setTimeout(refreshLogsCenter, 300);
+}
+
+function onLogLevelFilter(value) {
+    _logLevel = value || "";
+    refreshLogsCenter();
+}
+
+if (elements.logsBtn) elements.logsBtn.onclick = openLogsCenter;
+if (elements.refreshLogsBtn) elements.refreshLogsBtn.onclick = refreshLogsCenter;
+if (elements.closeLogsModal) elements.closeLogsModal.onclick = () => elements.logsModal.classList.remove("active");
+if (elements.logsModal) elements.logsModal.onclick = (event) => {
+    if (event.target === elements.logsModal) elements.logsModal.classList.remove("active");
+};
+
 elements.tasksBtn.onclick = async () => openTaskCenter(null);
 elements.refreshTasksBtn.onclick = refreshTaskCenter;
 elements.closeTasksModal.onclick = () => {

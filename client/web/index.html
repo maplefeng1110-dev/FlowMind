@@ -140,6 +140,12 @@
                         </svg>
                         <span class="icon-btn-label">权限</span>
                     </button>
+                    <button class="icon-btn" id="logsBtn" title="应用日志 · 集中查看" style="display: none;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 5h16M4 10h16M4 15h10M4 20h7"/>
+                        </svg>
+                        <span class="icon-btn-label">日志</span>
+                    </button>
                 </div>
             </div>
 
@@ -258,6 +264,35 @@
                     </select>
                 </div>
                 <div class="task-list" id="taskList"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="logsModal">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2>应用日志</h2>
+                <div class="modal-header-actions">
+                    <button class="task-refresh-btn" id="refreshLogsBtn">刷新</button>
+                    <button class="modal-close" id="closeLogsModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-content">
+                <div class="task-search-bar">
+                    <input id="logSearchInput" type="text" placeholder="搜索日志内容 / logger / 来源" oninput="onLogSearchInput(this.value)">
+                    <select id="logLevelFilter" onchange="onLogLevelFilter(this.value)">
+                        <option value="">全部级别</option>
+                        <option value="ERROR">ERROR</option>
+                        <option value="WARNING">WARNING</option>
+                        <option value="INFO">INFO</option>
+                    </select>
+                </div>
+                <div class="log-list" id="logList"></div>
             </div>
         </div>
     </div>

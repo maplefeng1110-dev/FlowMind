@@ -1918,3 +1918,59 @@ async def complete_task_schedule_run(
         async with db.execute("SELECT * FROM task_schedule_runs WHERE id = ?", (run_id,)) as cursor:
             run_row = await cursor.fetchone()
     return _row_to_schedule_run(run_row) if run_row else None
+
+
+# ==================== Centralized application logs ====================
+_APP_LOGS_DDL = (
+    "CREATE TABLE IF NOT EXISTS app_logs ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, level TEXT, "
+    "source TEXT, logger TEXT, message TEXT)"
+)
+
+
+async def insert_logs(records) -> int:
+    rows = [
+        (
+            str(r.get("ts") or ""),
+            str(r.get("level") or ""),
+            str(r.get("source") or ""),
+            str(r.get("logger") or ""),
+            str(r.get("message") or "")[:4000],
+        )
+        for r in (records or [])
+        if isinstance(r, dict)
+    ]
+    if not rows:
+        return 0
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(_APP_LOGS_DDL)
+        await db.executemany(
+            "INSERT INTO app_logs (ts, level, source, logger, message) VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+        await db.commit()
+    return len(rows)
+
+
+async def query_logs(limit: int = 200, level=None, source=None, keyword=None):
+    safe_limit = max(1, min(int(limit or 200), 1000))
+    clause = ""
+    params: list = []
+    if level:
+        clause += " AND level = ?"
+        params.append(str(level))
+    if source:
+        clause += " AND source LIKE ?"
+        params.append(f"%{source}%")
+    if keyword:
+        clause += " AND (message LIKE ? OR logger LIKE ?)"
+        params.extend([f"%{keyword}%", f"%{keyword}%"])
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(_APP_LOGS_DDL)
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"SELECT * FROM app_logs WHERE 1 = 1{clause} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [dict(row) for row in rows]

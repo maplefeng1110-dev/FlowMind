@@ -46,7 +46,9 @@ from registry.db import (
     list_machines,
     list_task_schedule_runs,
     list_task_schedules,
+    insert_logs,
     list_tasks,
+    query_logs,
     mark_task_schedule_run_started,
     set_task_schedule_active,
     touch_common_task,
@@ -99,6 +101,29 @@ async def upload_artifact(payload: ArtifactUpload):
     name = f"step{int(payload.index)}.{ext}"
     (target / name).write_bytes(base64.b64decode(payload.content_b64))
     return {"url": f"/artifacts/{run_id}/{name}"}
+
+
+class LogBatch(BaseModel):
+    records: List[Dict[str, Any]]
+
+
+@app.post("/logs")
+async def ingest_logs(batch: LogBatch):
+    # Open ingest from workers/processes on the trusted network (like /artifacts).
+    count = await insert_logs(batch.records or [])
+    return {"ingested": count}
+
+
+@app.get("/logs")
+async def get_app_logs(
+    limit: int = 200,
+    level: Optional[str] = None,
+    source: Optional[str] = None,
+    keyword: Optional[str] = None,
+    request: Request = None,
+):
+    await _resolve_request_user(request, require_admin=True)
+    return await query_logs(limit=limit, level=level, source=source, keyword=keyword)
 
 
 # ---- Failure-snapshot artifacts (uploaded by workers, served back for audit) ----

@@ -569,6 +569,27 @@ async def proxy_tasks(
     return await _proxy_registry_request(http_request, "GET", "/tasks", params=params)
 
 
+@app.get("/api/logs")
+async def proxy_logs(
+    limit: int = 200,
+    level: Optional[str] = None,
+    source: Optional[str] = None,
+    keyword: Optional[str] = None,
+    http_request: Request = None,
+):
+    """集中应用日志查询（后端按管理员鉴权）。"""
+
+    await _resolve_route_user(http_request)
+    params = {"limit": limit}
+    if level:
+        params["level"] = level
+    if source:
+        params["source"] = source
+    if keyword:
+        params["keyword"] = keyword
+    return await _proxy_registry_request(http_request, "GET", "/logs", params=params)
+
+
 @app.get("/api/artifacts/{run_id}/{name}")
 async def proxy_artifact(run_id: str, name: str, http_request: Request = None):
     """把 worker 上传到 Registry 的失败快照(截图/HTML)代理给前端展示。"""

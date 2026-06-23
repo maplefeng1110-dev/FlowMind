@@ -1086,6 +1086,67 @@ body::before {
     word-break: break-all;
 }
 
+/* ==================== Log panel ==================== */
+.log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12.5px;
+}
+
+.log-row {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--text-tertiary);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: var(--bg-panel);
+}
+
+.log-row.error {
+    border-left-color: var(--danger);
+}
+
+.log-row.warning {
+    border-left-color: var(--warning);
+}
+
+.log-level {
+    font-weight: 600;
+    font-size: 11px;
+    margin-right: 8px;
+}
+
+.log-level.error {
+    color: var(--danger);
+}
+
+.log-level.warning {
+    color: var(--warning);
+}
+
+.log-level.info {
+    color: var(--accent);
+}
+
+.log-ts,
+.log-logger {
+    color: var(--text-tertiary);
+    margin-right: 8px;
+}
+
+.log-source {
+    color: var(--text-secondary);
+    margin-right: 8px;
+}
+
+.log-message {
+    margin-top: 4px;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    word-break: break-all;
+    white-space: pre-wrap;
+}
+
 /* ==================== Messages ==================== */
 .messages-container {
     flex: 1;
