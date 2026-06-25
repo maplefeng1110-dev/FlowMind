@@ -1,9 +1,12 @@
-"""Step interpreter for rpa_flow: DSL execution + AI visual self-healing.
+"""Step interpreter for rpa_flow: DSL execution + tiered AI self-healing.
 
 The runner walks a :class:`~flow_dsl.Flow`, dispatching each step against a
 :class:`~driver.BrowserDriver`. When a selector-based action fails and the step
-allows healing, it falls back to the AI gateway (screenshot -> coordinates ->
-absolute click), implementing the PRD self-healing lifecycle.
+allows healing, it escalates through two tiers: ② a DOM-text element pick
+(serialize interactive elements -> AI gateway returns the best match's selector,
+no screenshot, robust to selector churn) and, failing that, ③ visual location
+(screenshot -> VLM coordinates -> absolute click), implementing the PRD
+self-healing lifecycle.
 """
 from __future__ import annotations
 
@@ -118,8 +121,7 @@ class FlowRunner:
         if action == "type":
             return await self._type(step)
         if action == "ai_click":
-            await self._ai_click(step)
-            return True
+            return await self._heal_click(step)
         if action == "scroll":
             await self.driver.scroll(step.direction, step.amount)
             return False
@@ -141,16 +143,14 @@ class FlowRunner:
     async def _click(self, step: Step) -> bool:
         selector = self._sub(step.selector)
         if not selector:
-            await self._ai_click(step)
-            return True
+            return await self._heal_click(step)
         probe = PROBE_TIMEOUT_MS if (step.heal and self.ai) else step.timeout_ms
         try:
             await self.driver.click(selector, probe)
             return False
         except LocatorError:
             if step.heal and self.ai:
-                await self._ai_click(step)
-                return True
+                return await self._heal_click(step)
             raise
 
     async def _type(self, step: Step) -> bool:
@@ -164,19 +164,72 @@ class FlowRunner:
             except LocatorError:
                 if not (step.heal and self.ai):
                     raise
-        # heal: locate the field visually, click it, then type into focus
         if not self.ai:
             raise LocatorError("type fallback requires an AI gateway")
-        coords = await self._locate(self._sub(step.intent) or selector or "input field")
+        intent = self._sub(step.intent) or selector or "input field"
+        # Tier 2: DOM-text pick -> type straight into the chosen field.
+        picked = await self._dom_pick(intent)
+        if picked:
+            try:
+                await self.driver.type(picked, text, PROBE_TIMEOUT_MS)
+                return True
+            except LocatorError:
+                pass
+        # Tier 3: visual locate -> click -> type into the focused element.
+        coords = await self._locate(intent)
         await self.driver.click_xy(coords[0], coords[1])
         await self.driver.type_text(text)
         return True
 
-    # -- AI-native actions --------------------------------------------------
-    async def _ai_click(self, step: Step) -> None:
+    # -- AI-native actions & tiered self-healing ----------------------------
+    async def _heal_click(self, step: Step) -> bool:
+        """Heal an absent/failed click via two tiers, cheap to costly:
+        ② serialize interactive elements -> AI gateway picks one -> click its
+        selector (no screenshot, robust to selector churn when text/role is
+        unchanged); ③ screenshot -> VLM coordinates -> absolute click as the
+        last-resort visual fallback."""
         intent = self._sub(step.intent) or self._sub(step.selector) or ""
+        selector = await self._dom_pick(intent)
+        if selector:
+            try:
+                await self.driver.click(selector, PROBE_TIMEOUT_MS)
+                return True
+            except LocatorError:
+                pass
         coords = await self._locate(intent)
         await self.driver.click_xy(coords[0], coords[1])
+        return True
+
+    async def _dom_pick(self, intent: str) -> Optional[str]:
+        """Tier-2 self-healing. Ask the AI gateway to choose the best interactive
+        element for ``intent`` from the content-script element list and return its
+        selector. Returns None when the gateway lacks ``pick``, the page exposes no
+        elements, the call fails, or nothing matched — so the caller escalates to
+        the visual tier."""
+        pick = getattr(self.ai, "pick", None)
+        if not callable(pick):
+            return None
+        try:
+            elements = await self.driver.list_interactive()
+        except Exception:  # noqa: BLE001 - DOM listing is best-effort
+            return None
+        if not elements:
+            return None
+        try:
+            chosen = await pick(elements, intent)
+        except Exception:  # noqa: BLE001 - any failure falls through to the visual tier
+            return None
+        if not isinstance(chosen, dict):
+            return None
+        selector = chosen.get("selector")
+        if selector:
+            return str(selector)
+        index = chosen.get("index")
+        if isinstance(index, int) and index >= 0:
+            for element in elements:
+                if element.get("i") == index and element.get("selector"):
+                    return str(element["selector"])
+        return None
 
     async def _locate(self, intent: str) -> tuple[float, float]:
         if not self.ai:

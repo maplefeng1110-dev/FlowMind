@@ -46,6 +46,12 @@ class BrowserDriver(abc.ABC):
     async def extract_text(self, selector: str, limit: int = 50) -> List[str]: ...
 
     @abc.abstractmethod
+    async def list_interactive(self, limit: int = 120) -> List[Dict[str, Any]]:
+        """Return a compact, indexed list of interactive elements for DOM-text
+        self-healing. Each item carries an actionable ``selector`` plus metadata
+        (``i``, ``tag``, ``text``, ``id`` …) the AI gateway uses to choose a match."""
+
+    @abc.abstractmethod
     async def page_text(self) -> str: ...
 
     @abc.abstractmethod
@@ -109,6 +115,10 @@ class ExtensionDriver(BrowserDriver):
         result = await self._command("extract_text", selector=selector, limit=limit)
         return list(result) if result else []
 
+    async def list_interactive(self, limit: int = 120) -> List[Dict[str, Any]]:
+        result = await self._command("list_interactive", limit=limit)
+        return list(result) if result else []
+
     async def page_text(self) -> str:
         return await self._command("page_text") or ""
 
@@ -140,10 +150,12 @@ class FakeDriver(BrowserDriver):
     self-healing fallback path can be exercised without a real browser.
     """
 
-    def __init__(self, elements=None, page_text: str = "", missing=None):
+    def __init__(self, elements=None, page_text: str = "", missing=None, interactive=None):
         self.elements: Dict[str, dict] = elements or {}
         self._page_text = page_text
         self.missing = set(missing or [])
+        # Interactive-element list returned by list_interactive() for DOM-pick tests.
+        self.interactive: List[Dict[str, Any]] = list(interactive or [])
         self.actions: List[tuple] = []
         self.current_url = "about:blank"
         self.typed: Dict[str, str] = {}
@@ -178,6 +190,9 @@ class FakeDriver(BrowserDriver):
         value = self.elements[selector].get("text", "")
         items = value if isinstance(value, list) else [value]
         return [str(v) for v in items][:limit]
+
+    async def list_interactive(self, limit: int = 120) -> List[Dict[str, Any]]:
+        return list(self.interactive)[:limit]
 
     async def page_text(self) -> str:
         return self._page_text
