@@ -1,0 +1,48 @@
+# FlowMind backend: Registry + Web + Redis.
+#   1) cp .env.example .env   and fill SECRET_KEY / admin / AI keys / FLOWMIND_AGENT_WS_TOKEN
+#   2) docker compose up -d --build
+#   3) Web UI  -> http://localhost:5173     Registry/Agent WS -> ws://<host>:8000/ws
+services:
+  registry:
+    build: .
+    image: flowmind-backend
+    command: python -m registry.main
+    environment:
+      REGISTRY_HOST: "0.0.0.0"
+      REGISTRY_PORT: "8000"
+      REDIS_URL: "redis://redis:6379/0"
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - flowmind-data:/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  web:
+    image: flowmind-backend
+    command: python -m client.web_server
+    environment:
+      WEB_HOST: "0.0.0.0"
+      WEB_PORT: "5173"
+      REGISTRY_API_URL: "http://registry:8000"
+    env_file:
+      - .env
+    ports:
+      - "5173:5173"
+    volumes:
+      - flowmind-data:/data
+    depends_on:
+      - registry
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # Coordination state is transient — run in-memory (no persistence).
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
+volumes:
+  flowmind-data:

@@ -1,0 +1,19 @@
+FlowMind Agent · 使用说明
+==========================
+
+1) 运行
+   - macOS : 终端执行  ./flowmind-agent   （首次被 Gatekeeper 拦时，右键“打开”一次）
+   - Windows: 双击  flowmind-agent.exe
+
+2) 首次运行会让你填写（之后写入同目录 flowmind-agent.env，可直接编辑）：
+   - Registry WS 地址   例如 ws://192.168.1.10:8000/ws
+   - 机器 ID            本机标识，可用默认
+   - Agent WS Token     必须与后端 .env 里的 FLOWMIND_AGENT_WS_TOKEN 一致
+
+3) 连接成功后，本机会出现在后端 Web 的“机器”列表里。
+
+浏览器 RPA（可选）：
+   - 在 Chrome 加载本目录的 extension/（chrome://extensions → 开发者模式 → 加载已解压）。
+   - 注册 Native Messaging Host（见部署文档 docs/DEPLOYMENT.md 第三节）。
+
+停止：关闭窗口或按 Ctrl+C。

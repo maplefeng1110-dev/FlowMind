@@ -7,11 +7,12 @@ and text to ``/ai/extract`` to get a validated JSON object.
 from __future__ import annotations
 
 import base64
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from . import dompick as dompick_mod
 from . import extract as extract_mod
 from . import vision as vision_mod
 from .router import AIRouter
@@ -42,6 +43,11 @@ class ExtractRequest(BaseModel):
     fields: Optional[Dict[str, str]] = None
 
 
+class PickRequest(BaseModel):
+    elements: List[Dict[str, Any]]
+    intent: str
+
+
 @router.get("/providers")
 async def providers_endpoint(ai_router: AIRouter = Depends(get_router)) -> Dict[str, Any]:
     return {"providers": ai_router.available(), "stats": ai_router.stats}
@@ -68,3 +74,11 @@ async def extract_endpoint(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/pick")
+async def pick_endpoint(
+    req: PickRequest, ai_router: AIRouter = Depends(get_router)
+) -> Dict[str, Any]:
+    """DOM-text self-healing tier: choose the best interactive element for an intent."""
+    return await dompick_mod.pick(ai_router, elements=req.elements, intent=req.intent)

@@ -76,6 +76,9 @@ if (!window.__flowmindContentLoaded) {
         return { ok: true };
       }
 
+      case "list_interactive":
+        return { ok: true, result: listInteractive(msg.limit || 120) };
+
       default:
         return { ok: false, error: "unknown action: " + msg.action };
     }
@@ -104,5 +107,52 @@ if (!window.__flowmindContentLoaded) {
     }
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  // -- DOM-text self-healing (tier 2): serialize visible interactive elements ---
+  // The worker sends the list to the AI gateway, which picks the best match for an
+  // intent and returns its selector — cheaper and steadier than VLM coordinates.
+  const INTERACTIVE_SELECTOR = [
+    "a[href]", "button", "input", "select", "textarea", "summary", "label",
+    "[role=button]", "[role=link]", "[role=tab]", "[role=menuitem]",
+    "[role=checkbox]", "[role=radio]", "[onclick]", "[contenteditable=true]",
+  ].join(",");
+
+  function isVisible(el) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+      return false;
+    }
+    return !el.disabled;
+  }
+
+  function describeInteractive(el, idx) {
+    const item = { i: idx, tag: el.tagName.toLowerCase(), selector: '[data-fm-idx="' + idx + '"]' };
+    const text = (el.innerText || el.textContent || el.value || "").trim().replace(/\s+/g, " ");
+    if (text) item.text = text.slice(0, 120);
+    ["type", "id", "name", "placeholder", "role"].forEach((attr) => {
+      const value = el.getAttribute(attr);
+      if (value) item[attr] = value;
+    });
+    const aria = el.getAttribute("aria-label");
+    if (aria) item.aria = aria;
+    return item;
+  }
+
+  function listInteractive(limit) {
+    // Clear stamps left by a previous call so indices stay stable within one heal.
+    document.querySelectorAll("[data-fm-idx]").forEach((n) => n.removeAttribute("data-fm-idx"));
+    const out = [];
+    const all = document.querySelectorAll(INTERACTIVE_SELECTOR);
+    for (let i = 0; i < all.length && out.length < limit; i++) {
+      const el = all[i];
+      if (!isVisible(el)) continue;
+      const idx = out.length;
+      el.setAttribute("data-fm-idx", String(idx)); // makes [data-fm-idx="N"] actionable
+      out.push(describeInteractive(el, idx));
+    }
+    return out;
   }
 }

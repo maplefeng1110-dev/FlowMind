@@ -12,7 +12,10 @@ const state = {
     tools: [],
     toolsLoadedAt: 0,
     tasks: [],
+    logs: [],
     taskFilterConversationId: null,
+    taskSearchKeyword: "",
+    taskStatusFilter: "",
     taskPage: 1,
     auth: {
         user: null,
@@ -96,6 +99,11 @@ const elements = {
     exportList: document.getElementById("exportList"),
     exportHint: document.getElementById("exportHint"),
     adminBtn: document.getElementById("adminBtn"),
+    logsBtn: document.getElementById("logsBtn"),
+    logsModal: document.getElementById("logsModal"),
+    logList: document.getElementById("logList"),
+    closeLogsModal: document.getElementById("closeLogsModal"),
+    refreshLogsBtn: document.getElementById("refreshLogsBtn"),
     adminModal: document.getElementById("adminModal"),
     refreshAdminBtn: document.getElementById("refreshAdminBtn"),
     closeAdminModal: document.getElementById("closeAdminModal"),
@@ -188,6 +196,7 @@ function updateUserPanel() {
         elements.currentUserRole.textContent = "请先登录继续使用";
         elements.logoutBtn.style.display = "none";
         elements.adminBtn.style.display = "none";
+        if (elements.logsBtn) elements.logsBtn.style.display = "none";
         return;
     }
 
@@ -195,6 +204,7 @@ function updateUserPanel() {
     elements.currentUserRole.textContent = `${formatUserRole(user.role)} · ${user.username}`;
     elements.logoutBtn.style.display = "inline-flex";
     elements.adminBtn.style.display = isAdminUser() ? "inline-flex" : "none";
+    if (elements.logsBtn) elements.logsBtn.style.display = isAdminUser() ? "inline-flex" : "none";
 }
 
 function showAuthScreen(message = "") {
@@ -2702,7 +2712,10 @@ async function refreshMachines() {
 
 async function loadTasks(limit = 30) {
     try {
-        const response = await fetch(`/api/tasks?limit=${encodeURIComponent(limit)}`);
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (state.taskSearchKeyword) params.set("keyword", state.taskSearchKeyword);
+        if (state.taskStatusFilter) params.set("status", state.taskStatusFilter);
+        const response = await fetch(`/api/tasks?${params.toString()}`);
         const tasks = await response.json();
         state.tasks = Array.isArray(tasks) ? tasks : [];
     } catch (error) {
@@ -2710,6 +2723,21 @@ async function loadTasks(limit = 30) {
         state.tasks = [];
     }
     updateTasksBadge();
+}
+
+let _taskSearchTimer = 0;
+function onTaskSearchInput(value) {
+    state.taskSearchKeyword = (value || "").trim();
+    clearTimeout(_taskSearchTimer);
+    _taskSearchTimer = setTimeout(() => {
+        state.taskPage = 1;
+        refreshTaskCenter();
+    }, 300);
+}
+function onTaskStatusFilter(value) {
+    state.taskStatusFilter = value || "";
+    state.taskPage = 1;
+    refreshTaskCenter();
 }
 
 function upsertTaskRecord(task) {
@@ -2797,12 +2825,69 @@ function isTaskVisibleInCurrentFilter(task) {
     return getVisibleTasks().some((item) => item.id === task.id);
 }
 
+function renderRpaSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") return "";
+    const shot = snapshot.screenshot;
+    if (typeof shot === "string" && shot.indexOf("/artifacts/") === 0) {
+        const url = "/api" + shot;  // 后端回传的快照经 web 代理展示
+        return `<a class="rpa-step-shot" href="${url}" target="_blank"><img src="${url}" alt="snapshot" loading="lazy"></a>`;
+    }
+    if (typeof shot === "string" && shot) {
+        return `<div class="rpa-step-shot-path">快照(本机): ${escapeHtml(shot)}</div>`;
+    }
+    return "";
+}
+
+function renderRpaSteps(task) {
+    const result = task && typeof task.result === "object" ? task.result : null;
+    // rpa_flow wraps its output in success_result(data=...), so steps live at
+    // result.data.steps; fall back to result.steps for unwrapped results.
+    const data = result && typeof result.data === "object" && result.data ? result.data : null;
+    const steps = (data && Array.isArray(data.steps)) ? data.steps
+        : (result && Array.isArray(result.steps)) ? result.steps : [];
+    if (steps.length === 0) {
+        return "";
+    }
+    const rows = steps.map((step) => {
+        const status = String(step.status || "").toLowerCase();
+        const idx = typeof step.index === "number" ? step.index : 0;
+        const badges = [];
+        if (step.healed) badges.push(`<span class="rpa-step-badge heal">自愈</span>`);
+        if (step.skipped) badges.push(`<span class="rpa-step-badge skip">跳过</span>`);
+        if (typeof step.attempts === "number" && step.attempts > 1) {
+            badges.push(`<span class="rpa-step-badge retry">重试${step.attempts}次</span>`);
+        }
+        const ms = typeof step.ms === "number" ? `${step.ms}ms` : "";
+        const error = step.error ? `<div class="rpa-step-error">${escapeHtml(step.error)}</div>` : "";
+        return `
+            <div class="rpa-step ${status}">
+                <div class="rpa-step-head">
+                    <span class="rpa-step-idx">${idx + 1}</span>
+                    <span class="rpa-step-target">${escapeHtml(step.target || step.action || "")}</span>
+                    <span class="rpa-step-status ${status}">${escapeHtml(step.status || "")}</span>
+                    <span class="rpa-step-ms">${escapeHtml(ms)}</span>
+                    ${badges.join("")}
+                </div>
+                ${error}
+                ${renderRpaSnapshot(step.snapshot)}
+            </div>
+        `;
+    }).join("");
+    return `
+        <div class="task-detail-block">
+            <div class="task-detail-label">RPA 逐步日志（${steps.length} 步）</div>
+            <div class="rpa-steps">${rows}</div>
+        </div>
+    `;
+}
+
 function renderTaskDetailContent(task) {
     return `
         <div class="task-detail-block">
             <div class="task-detail-label">参数</div>
             <pre>${escapeHtml(stringifyValue(task.params || {}))}</pre>
         </div>
+        ${renderRpaSteps(task)}
         <div class="task-detail-block">
             <div class="task-detail-label">结果</div>
             <pre>${escapeHtml(buildFullTaskPreview(task))}</pre>
@@ -3413,6 +3498,74 @@ elements.machinesModal.onclick = (event) => {
         elements.machinesModal.classList.remove("active");
     }
 };
+let _logKeyword = "";
+let _logLevel = "";
+let _logSearchTimer = 0;
+
+async function loadLogs(limit = 200) {
+    try {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (_logKeyword) params.set("keyword", _logKeyword);
+        if (_logLevel) params.set("level", _logLevel);
+        const response = await fetch(`/api/logs?${params.toString()}`);
+        const logs = await response.json();
+        state.logs = Array.isArray(logs) ? logs : [];
+    } catch (error) {
+        console.error("Failed to load logs:", error);
+        state.logs = [];
+    }
+}
+
+function renderLogs() {
+    if (!elements.logList) return;
+    const logs = state.logs || [];
+    if (logs.length === 0) {
+        elements.logList.innerHTML = `<div class="task-empty-state"><div class="task-empty-title">暂无日志</div><div class="task-empty-description">给各进程配置 FLOWMIND_LOG_SINK_URL 后，WARN+ 日志会汇聚到这里。</div></div>`;
+        return;
+    }
+    elements.logList.innerHTML = logs.map((log) => {
+        const level = String(log.level || "").toUpperCase();
+        const cls = level.toLowerCase();
+        return `
+            <div class="log-row ${cls}">
+                <span class="log-level ${cls}">${escapeHtml(level)}</span>
+                <span class="log-ts">${escapeHtml(log.ts || "")}</span>
+                <span class="log-source">${escapeHtml(log.source || "")}</span>
+                <span class="log-logger">${escapeHtml(log.logger || "")}</span>
+                <div class="log-message">${escapeHtml(log.message || "")}</div>
+            </div>
+        `;
+    }).join("");
+}
+
+async function refreshLogsCenter() {
+    await loadLogs();
+    renderLogs();
+}
+
+async function openLogsCenter() {
+    elements.logsModal.classList.add("active");
+    await refreshLogsCenter();
+}
+
+function onLogSearchInput(value) {
+    _logKeyword = (value || "").trim();
+    clearTimeout(_logSearchTimer);
+    _logSearchTimer = setTimeout(refreshLogsCenter, 300);
+}
+
+function onLogLevelFilter(value) {
+    _logLevel = value || "";
+    refreshLogsCenter();
+}
+
+if (elements.logsBtn) elements.logsBtn.onclick = openLogsCenter;
+if (elements.refreshLogsBtn) elements.refreshLogsBtn.onclick = refreshLogsCenter;
+if (elements.closeLogsModal) elements.closeLogsModal.onclick = () => elements.logsModal.classList.remove("active");
+if (elements.logsModal) elements.logsModal.onclick = (event) => {
+    if (event.target === elements.logsModal) elements.logsModal.classList.remove("active");
+};
+
 elements.tasksBtn.onclick = async () => openTaskCenter(null);
 elements.refreshTasksBtn.onclick = refreshTaskCenter;
 elements.closeTasksModal.onclick = () => {
