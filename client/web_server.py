@@ -5,6 +5,7 @@ import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 import yaml
@@ -12,7 +13,7 @@ from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from utils.paths import DATA_DIR
+from utils.internal_api import build_internal_api_headers
 
 from client.agent_admin_token_store import get_agent_admin_token_store_health, load_agent_admin_token_store
 from client.ai_manager import ai_manager
@@ -472,11 +473,6 @@ async def upload_file(file: UploadFile = File(...), http_request: Request = None
 if (WEB_PATH / "static").exists():
     app.mount("/static", StaticFiles(directory=str(WEB_PATH / "static")), name="static")
 
-# Serve worker-uploaded failure snapshots (shared /data volume with the Registry).
-_artifacts_dir = DATA_DIR / "artifacts"
-_artifacts_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/api/artifacts", StaticFiles(directory=str(_artifacts_dir)), name="artifacts")
-
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest, http_request: Request = None):
@@ -590,18 +586,26 @@ async def proxy_logs(
     return await _proxy_registry_request(http_request, "GET", "/logs", params=params)
 
 
+ARTIFACT_RESPONSE_HEADERS = {"Content-Security-Policy": "sandbox", "X-Content-Type-Options": "nosniff"}
+
+
 @app.get("/api/artifacts/{run_id}/{name}")
 async def proxy_artifact(run_id: str, name: str, http_request: Request = None):
     """把 worker 上传到 Registry 的失败快照(截图/HTML)代理给前端展示。"""
 
     await _resolve_route_user(http_request)
     registry_url = os.getenv("REGISTRY_API_URL", "http://127.0.0.1:8000")
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        resp = await client.get(f"{registry_url}/artifacts/{run_id}/{name}")
+    headers = build_internal_api_headers(session_token=get_session_token_from_request(http_request))
+    try:
+        async with httpx.AsyncClient(timeout=20.0, headers=headers) as client:
+            resp = await client.get(f"{registry_url}/artifacts/{quote(run_id)}/{quote(name)}")
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to reach registry: {exc}") from exc
     return Response(
         content=resp.content,
         media_type=resp.headers.get("content-type", "application/octet-stream"),
         status_code=resp.status_code,
+        headers=ARTIFACT_RESPONSE_HEADERS,
     )
 
 

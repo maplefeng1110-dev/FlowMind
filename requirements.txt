@@ -1,7 +1,9 @@
 fastapi
 uvicorn
 websockets
-mcp
+# registry/main.py uses the low-level mcp.server.Server decorator API, which mcp 2.x
+# removed; registry/mcp_transport.py supports both pre- and post-1.8 message framing.
+mcp>=1.6,<2
 aiosqlite
 pydantic
 pyyaml

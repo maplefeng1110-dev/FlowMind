@@ -37,18 +37,22 @@ class RemoteSnapshotSink:
     see them even when the worker is a remote machine. Falls back to local files on
     any upload failure."""
 
-    def __init__(self, base_url: str, task_id: str = "", fallback_dir: str = ""):
+    def __init__(self, base_url: str, task_id: str = "", fallback_dir: str = "", token: str = ""):
         self.base_url = base_url.rstrip("/")
         self.task_id = task_id or time.strftime("run-%Y%m%d-%H%M%S")
         self.fallback = LocalSnapshotSink(fallback_dir, self.task_id) if fallback_dir else None
+        # Registry requires the shared agent token on /artifacts; defaults to FLOWMIND_AGENT_WS_TOKEN.
+        self.token = token
 
     async def save(self, *, index: int, step: str, error: str, png: bytes, html: str) -> Dict[str, Any]:
         import base64
         import httpx
 
+        from utils.internal_api import build_agent_auth_headers
+
         refs: Dict[str, Any] = {"step": step, "error": error}
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
+            async with httpx.AsyncClient(timeout=20.0, headers=build_agent_auth_headers(self.token)) as client:
                 for kind, content in (("png", png or b""), ("html", (html or "").encode("utf-8"))):
                     response = await client.post(
                         f"{self.base_url}/artifacts",

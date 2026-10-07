@@ -15,7 +15,7 @@ import pytest
 # registry/db.py uses Python 3.9+ syntax (zoneinfo, runtime X | Y unions). On the
 # 3.8 sandbox we stub the db module so the dispatch engine imports; the real 3.9+
 # runtime uses the actual db, and DB calls are no-ops in these tests anyway.
-if "registry.db" not in sys.modules:
+if sys.version_info < (3, 9) and "registry.db" not in sys.modules:
     _db_stub = types.ModuleType("registry.db")
 
     async def _async_none(*args, **kwargs):

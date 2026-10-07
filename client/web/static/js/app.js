@@ -234,9 +234,24 @@ function getConversationTag(conversationId) {
 }
 
 function escapeHtml(text) {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
+    // Also escapes quotes: results are interpolated into attribute values, not just text.
+    return String(text ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+// A JS string literal that is safe inside a double-quoted inline handler attribute.
+function jsArg(value) {
+    return escapeHtml(JSON.stringify(String(value ?? "")));
+}
+
+// Only plain web/mail links become anchors; anything else stays as text.
+function safeLinkHref(url) {
+    const value = String(url || "").trim();
+    return /^(https?:\/\/|mailto:)/i.test(value) ? value : "";
 }
 
 function truncateText(text, maxLength = TASK_PREVIEW_LIMIT) {
@@ -255,7 +270,10 @@ function formatMarkdown(text) {
     let formatted = escapeHtml(text);
     formatted = formatted.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
     formatted = formatted.replace(/`(.*?)`/g, "<code>$1</code>");
-    formatted = formatted.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="markdown-link">$1</a>');
+    formatted = formatted.replace(/\[(.*?)\]\((.*?)\)/g, (match, label, url) => {
+        const href = safeLinkHref(url);
+        return href ? `<a href="${href}" target="_blank" rel="noopener noreferrer" class="markdown-link">${label}</a>` : match;
+    });
     formatted = formatted.replace(/\n/g, "<br>");
     return formatted;
 }
@@ -646,7 +664,7 @@ function renderReusableTaskSuggestion(message) {
         <div class="reusable-task-card">
             <div class="reusable-task-card-header">
                 <div class="reusable-task-card-title">${icons.spark}<span>${escapeHtml(suggestion.title || "常用任务建议")}</span></div>
-                <button class="reusable-task-save-btn" onclick="saveReusableTaskSuggestion('${escapeHtml(message.id || "")}')" ${suggestion.saved_task_id ? "disabled" : ""}>${escapeHtml(saved)}</button>
+                <button class="reusable-task-save-btn" onclick="saveReusableTaskSuggestion(${jsArg(message.id || "")})" ${suggestion.saved_task_id ? "disabled" : ""}>${escapeHtml(saved)}</button>
             </div>
             ${suggestion.summary ? `<div class="reusable-task-card-summary">${escapeHtml(suggestion.summary)}</div>` : ""}
         </div>
@@ -1400,7 +1418,7 @@ function renderAdminUserCard(user) {
                         ${pluginOptions}
                     </div>
                     <div class="admin-user-actions">
-                        <button class="secondary-action-btn" onclick="saveAdminPermissions('${escapeHtml(user.id || "")}')">保存插件授权</button>
+                        <button class="secondary-action-btn" onclick="saveAdminPermissions(${jsArg(user.id || "")})">保存插件授权</button>
                     </div>
                 `}
         </div>
@@ -1738,16 +1756,16 @@ async function deleteConversation(id) {
 
 function renderHistory() {
     elements.historyList.innerHTML = state.conversations.map((conversation) => `
-        <div class="history-item ${conversation.id === state.currentConversationId ? "active" : ""}" onclick="loadConversation('${conversation.id}')">
+        <div class="history-item ${conversation.id === state.currentConversationId ? "active" : ""}" onclick="loadConversation(${jsArg(conversation.id)})">
             <div class="history-item-content">
                 ${icons.chat}
                 <span>${escapeHtml(conversation.title)}</span>
             </div>
             <div class="history-item-actions">
-                <button class="history-task-tag" onclick="event.stopPropagation(); openTaskCenterForConversation('${conversation.id}')" title="查看该对话的任务">
+                <button class="history-task-tag" onclick="event.stopPropagation(); openTaskCenterForConversation(${jsArg(conversation.id)})" title="查看该对话的任务">
                     ${escapeHtml(getConversationTag(conversation.id))}
                 </button>
-                <button class="delete-history-btn" onclick="event.stopPropagation(); deleteConversation('${conversation.id}')" title="删除">
+                <button class="delete-history-btn" onclick="event.stopPropagation(); deleteConversation(${jsArg(conversation.id)})" title="删除">
                     ${icons.trash}
                 </button>
             </div>
@@ -1786,11 +1804,11 @@ function renderCommonTasks() {
 
     elements.commonTaskList.innerHTML = state.commonTasks.map((task) => `
         <div class="common-task-item">
-            <button class="common-task-use-btn" onclick="useCommonTask('${escapeHtml(task.id || "")}')">
+            <button class="common-task-use-btn" onclick="useCommonTask(${jsArg(task.id || "")})">
                 <span class="common-task-title">${escapeHtml(task.title || "常用任务")}</span>
                 <span class="common-task-summary">${escapeHtml(task.summary || task.prompt || "")}</span>
             </button>
-            <button class="common-task-delete-btn" onclick="deleteCommonTask('${escapeHtml(task.id || "")}')" title="删除">
+            <button class="common-task-delete-btn" onclick="deleteCommonTask(${jsArg(task.id || "")})" title="删除">
                 ${icons.trash}
             </button>
         </div>
@@ -2060,9 +2078,9 @@ function renderScheduleList() {
                 <div class="task-card-preview">${escapeHtml(schedule.summary || schedule.prompt || "暂无说明")}</div>
                 ${schedule.last_error ? `<div class="schedule-error-text">${escapeHtml(schedule.last_error)}</div>` : ""}
                 <div class="schedule-card-actions">
-                    <button class="card-action-btn" type="button" onclick="populateScheduleForm('${escapeHtml(schedule.id || "")}')">编辑</button>
-                    <button class="card-action-btn" type="button" onclick="toggleScheduleActive('${escapeHtml(schedule.id || "")}', ${schedule.is_active ? "false" : "true"})">${schedule.is_active ? "暂停" : "启用"}</button>
-                    <button class="card-action-btn danger" type="button" onclick="deleteSchedule('${escapeHtml(schedule.id || "")}')">${icons.trash}<span>删除</span></button>
+                    <button class="card-action-btn" type="button" onclick="populateScheduleForm(${jsArg(schedule.id || "")})">编辑</button>
+                    <button class="card-action-btn" type="button" onclick="toggleScheduleActive(${jsArg(schedule.id || "")}, ${schedule.is_active ? "false" : "true"})">${schedule.is_active ? "暂停" : "启用"}</button>
+                    <button class="card-action-btn danger" type="button" onclick="deleteSchedule(${jsArg(schedule.id || "")})">${icons.trash}<span>删除</span></button>
                 </div>
             </div>
         `;
@@ -2297,7 +2315,7 @@ function renderExportCenter() {
                         class="secondary-action-btn"
                         type="button"
                         ${target.disabled ? "disabled" : ""}
-                        onclick="downloadExport('${escapeHtml(target.id)}', '${escapeHtml(button.format)}')"
+                        onclick="downloadExport(${jsArg(target.id)}, ${jsArg(button.format)})"
                     >
                         下载 ${escapeHtml(button.label)}
                     </button>
@@ -2830,7 +2848,7 @@ function renderRpaSnapshot(snapshot) {
     const shot = snapshot.screenshot;
     if (typeof shot === "string" && shot.indexOf("/artifacts/") === 0) {
         const url = "/api" + shot;  // 后端回传的快照经 web 代理展示
-        return `<a class="rpa-step-shot" href="${url}" target="_blank"><img src="${url}" alt="snapshot" loading="lazy"></a>`;
+        return `<a class="rpa-step-shot" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(url)}" alt="snapshot" loading="lazy"></a>`;
     }
     if (typeof shot === "string" && shot) {
         return `<div class="rpa-step-shot-path">快照(本机): ${escapeHtml(shot)}</div>`;
@@ -2920,7 +2938,7 @@ function renderTaskCard(task) {
                     <button
                         class="card-action-btn danger"
                         type="button"
-                        onclick="deleteTask('${escapeHtml(task.id || "")}')"
+                        onclick="deleteTask(${jsArg(task.id || "")})"
                         ${deleteDisabled ? "disabled" : ""}
                         title="${escapeHtml(deleteTitle)}"
                     >
@@ -3279,7 +3297,7 @@ function renderMachineCard(machine) {
                     <button
                         class="card-action-btn danger"
                         type="button"
-                        onclick="deleteMachine('${escapeHtml(machine.id || "")}')"
+                        onclick="deleteMachine(${jsArg(machine.id || "")})"
                         ${deleteDisabled ? "disabled" : ""}
                         title="${escapeHtml(deleteTitle)}"
                     >

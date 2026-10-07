@@ -85,9 +85,12 @@ class _CentralLogHandler(logging.Handler):
     def _post(self, records) -> None:
         try:
             data = _json.dumps({"records": records}).encode("utf-8")
-            req = urllib.request.Request(
-                self._url, data=data, headers={"Content-Type": "application/json"}, method="POST"
-            )
+            headers = {"Content-Type": "application/json"}
+            # Registry requires the shared agent token on /logs (resolved lazily, see _env_cfg).
+            agent_token = _env_cfg("FLOWMIND_AGENT_WS_TOKEN")
+            if agent_token:
+                headers["X-FlowMind-Agent-Token"] = str(agent_token).strip()
+            req = urllib.request.Request(self._url, data=data, headers=headers, method="POST")
             urllib.request.urlopen(req, timeout=5)
         except Exception:
             pass

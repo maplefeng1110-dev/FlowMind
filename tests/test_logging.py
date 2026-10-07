@@ -21,3 +21,15 @@ def test_emit_never_raises_when_sink_unreachable():
     handler.setFormatter(logging.Formatter("%(message)s"))
     # Must not raise even though the sink is unreachable (best-effort logging).
     handler.emit(logging.LogRecord("x", logging.WARNING, "f", 1, "hi", None, None))
+
+
+def test_central_log_handler_sends_agent_token(monkeypatch):
+    import utils.logger as logger_mod
+    from utils.internal_api import AGENT_TOKEN_HEADER
+
+    sent = []
+    monkeypatch.setenv("FLOWMIND_AGENT_WS_TOKEN", "agent-token-for-tests")
+    monkeypatch.setattr(logger_mod.urllib.request, "urlopen", lambda req, timeout=None: sent.append(req))
+    handler = _CentralLogHandler("http://127.0.0.1:1", "m")
+    handler._post([{"level": "WARNING", "message": "hi"}])
+    assert sent and sent[0].get_header(AGENT_TOKEN_HEADER.capitalize()) == "agent-token-for-tests"

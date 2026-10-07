@@ -3,14 +3,14 @@ import base64
 import contextvars
 import json
 import os
+import re
 import secrets
 from contextlib import asynccontextmanager, suppress
 from typing import Any, Dict, List, Optional
 
 import mcp.types as types
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from mcp.server import Server
 from pydantic import BaseModel
 from starlette.responses import Response
@@ -58,9 +58,15 @@ from registry.db import (
     update_task_schedule,
     update_machine_status,
 )
-from utils.internal_api import INTERNAL_API_HEADER, USER_SESSION_HEADER, has_internal_api_token, validate_internal_api_token
+from utils.internal_api import (
+    AGENT_TOKEN_HEADER,
+    INTERNAL_API_HEADER,
+    USER_SESSION_HEADER,
+    has_internal_api_token,
+    validate_agent_token,
+    validate_internal_api_token,
+)
 from utils.logger import setup_logger
-from utils.paths import DATA_DIR
 
 from .dispatch import TERMINAL_TASK_STATUSES, engine
 from .mcp_transport import SessionBoundSseTransport
@@ -69,38 +75,27 @@ logger = setup_logger("Registry", "registry.log")
 
 app = FastAPI(title="RPA Registry")
 
+
+def _require_worker_request(request: Request) -> None:
+    """Worker-facing endpoints (AI gateway, artifact/log ingest) accept either the
+    shared agent token or the Web->Registry internal token."""
+    if validate_agent_token(request.headers.get(AGENT_TOKEN_HEADER)):
+        return
+    if validate_internal_api_token(request.headers.get(INTERNAL_API_HEADER)):
+        return
+    raise HTTPException(status_code=401, detail="Unauthorized worker request")
+
+
 # AI routing gateway exposed to Robot Workers (visual locate / structured extract).
 # Additive and self-contained: a failure here must never block registry startup.
 try:
     from ai.gateway_api import router as ai_gateway_router
 
-    app.include_router(ai_gateway_router)
+    app.include_router(ai_gateway_router, dependencies=[Depends(_require_worker_request)])
 except Exception as exc:  # noqa: BLE001
     logger.warning("AI gateway not mounted: %s", exc)
 
-# Failure snapshots uploaded by workers, so artifacts from remote machines are
-# centralized on the Orchestrator and viewable from the audit UI.
-ARTIFACTS_DIR = DATA_DIR / "artifacts"
-ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/artifacts", StaticFiles(directory=str(ARTIFACTS_DIR)), name="artifacts")
-
-
-class ArtifactUpload(BaseModel):
-    run_id: str
-    index: int
-    kind: str
-    content_b64: str
-
-
-@app.post("/artifacts")
-async def upload_artifact(payload: ArtifactUpload):
-    run_id = "".join(ch for ch in payload.run_id if ch.isalnum() or ch in "-_") or "run"
-    target = ARTIFACTS_DIR / run_id
-    target.mkdir(parents=True, exist_ok=True)
-    ext = {"png": "png", "html": "html"}.get(payload.kind, "bin")
-    name = f"step{int(payload.index)}.{ext}"
-    (target / name).write_bytes(base64.b64decode(payload.content_b64))
-    return {"url": f"/artifacts/{run_id}/{name}"}
+MAX_LOG_BATCH = 500
 
 
 class LogBatch(BaseModel):
@@ -108,9 +103,9 @@ class LogBatch(BaseModel):
 
 
 @app.post("/logs")
-async def ingest_logs(batch: LogBatch):
-    # Open ingest from workers/processes on the trusted network (like /artifacts).
-    count = await insert_logs(batch.records or [])
+async def ingest_logs(batch: LogBatch, request: Request):
+    _require_worker_request(request)
+    count = await insert_logs((batch.records or [])[:MAX_LOG_BATCH])
     return {"ingested": count}
 
 
@@ -128,12 +123,18 @@ async def get_app_logs(
 
 # ---- Failure-snapshot artifacts (uploaded by workers, served back for audit) ----
 ARTIFACTS_DIR = DATA_DIR / "artifacts"
+ARTIFACT_KINDS = {"png", "html"}
+ARTIFACT_NAME_RE = re.compile(r"^step\d+\.(?:png|html)$")
+MAX_ARTIFACT_BYTES = max(1, int(os.getenv("FLOWMIND_MAX_ARTIFACT_BYTES", str(10 * 1024 * 1024))))
+# Snapshot HTML is captured from arbitrary third-party pages: serve it inert, never as
+# an active document on our origin.
+ARTIFACT_RESPONSE_HEADERS = {"Content-Security-Policy": "sandbox", "X-Content-Type-Options": "nosniff"}
 
 
 class ArtifactUpload(BaseModel):
     run_id: str
     index: int = 0
-    kind: str = "bin"
+    kind: str = "png"
     content_b64: str
 
 
@@ -142,25 +143,32 @@ def _safe_segment(value: str) -> str:
 
 
 @app.post("/artifacts")
-async def upload_artifact(payload: ArtifactUpload):
-    run_dir = ARTIFACTS_DIR / _safe_segment(payload.run_id)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    ext = {"png": "png", "html": "html"}.get(payload.kind, "bin")
-    name = f"step{int(payload.index)}.{ext}"
+async def upload_artifact(payload: ArtifactUpload, request: Request):
+    _require_worker_request(request)
+    if payload.kind not in ARTIFACT_KINDS:
+        raise HTTPException(status_code=400, detail=f"unsupported artifact kind: {payload.kind}")
     try:
-        (run_dir / name).write_bytes(base64.b64decode(payload.content_b64))
+        content = base64.b64decode(payload.content_b64, validate=True)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"invalid artifact content: {exc}") from exc
-    return {"url": f"/artifacts/{_safe_segment(payload.run_id)}/{name}"}
+    if len(content) > MAX_ARTIFACT_BYTES:
+        raise HTTPException(status_code=413, detail="artifact too large")
+    run_id = _safe_segment(payload.run_id)
+    run_dir = ARTIFACTS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    name = f"step{max(0, int(payload.index))}.{payload.kind}"
+    (run_dir / name).write_bytes(content)
+    return {"url": f"/artifacts/{run_id}/{name}"}
 
 
 @app.get("/artifacts/{run_id}/{name}")
-async def get_artifact(run_id: str, name: str):
-    safe_name = name.replace("/", "").replace("\\", "").replace("..", "")
-    path = ARTIFACTS_DIR / _safe_segment(run_id) / safe_name
-    if not path.exists():
+async def get_artifact(run_id: str, name: str, request: Request):
+    # Only the Web proxy (internal token) reads artifacts back.
+    _require_internal_request(request)
+    path = ARTIFACTS_DIR / _safe_segment(run_id) / name
+    if not ARTIFACT_NAME_RE.fullmatch(name) or not path.is_file():
         raise HTTPException(status_code=404, detail="artifact not found")
-    return FileResponse(str(path))
+    return FileResponse(str(path), headers=ARTIFACT_RESPONSE_HEADERS)
 
 
 mcp_server = Server("rpa-registry")

@@ -13,15 +13,22 @@ from typing import Any, Dict, List, Optional
 
 
 class AIGatewayClient:
-    def __init__(self, base_url: str, *, timeout: float = 20.0):
+    def __init__(self, base_url: str, *, timeout: float = 20.0, token: Optional[str] = None):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        # Registry requires the shared agent token on /ai/*; defaults to FLOWMIND_AGENT_WS_TOKEN.
+        self.token = token
+
+    def _headers(self) -> Dict[str, str]:
+        from utils.internal_api import build_agent_auth_headers
+
+        return build_agent_auth_headers(self.token)
 
     async def locate(self, image_png: bytes, intent: str) -> Optional[Dict[str, Any]]:
         import httpx
 
         payload = {"image_b64": base64.b64encode(image_png).decode(), "intent": intent}
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
             response = await client.post(f"{self.base_url}/ai/locate", json=payload)
             response.raise_for_status()
             return response.json()
@@ -34,7 +41,7 @@ class AIGatewayClient:
         import httpx
 
         payload = {"elements": elements, "intent": intent}
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
             response = await client.post(f"{self.base_url}/ai/pick", json=payload)
             response.raise_for_status()
             return response.json()
@@ -52,7 +59,7 @@ class AIGatewayClient:
         payload: Dict[str, Any] = {"text": text, "schema_ref": schema_ref, "fields": fields}
         if image_png is not None:
             payload["image_b64"] = base64.b64encode(image_png).decode()
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
             response = await client.post(f"{self.base_url}/ai/extract", json=payload)
             response.raise_for_status()
             return response.json()
