@@ -92,8 +92,9 @@ if (!window.__flowmindContentLoaded) {
     }
     el.dispatchEvent(new MouseEvent("mousedown", opts));
     el.dispatchEvent(new MouseEvent("mouseup", opts));
+    // A dispatched click already runs the element's activation behavior (toggle,
+    // submit, follow link); calling el.click() as well would activate it twice.
     el.dispatchEvent(new MouseEvent("click", opts));
-    if (typeof el.click === "function" && x == null) el.click();
   }
 
   function setValue(el, text) {

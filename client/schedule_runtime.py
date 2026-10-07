@@ -1,18 +1,25 @@
 import asyncio
 import json
 import os
+import time
 import uuid
 from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from client.ai_manager import ai_manager
+from client.orchestration_runtime import register_task_update
 from client.web_server_chat import chat_with_mcp
-from client.web_server_tooling import _proxy_json, logger
+from client.web_server_tooling import _proxy_json, _summarize_tool_output, logger
 
 SCHEDULER_POLL_SECONDS = max(5, int(os.getenv("FLOWMIND_SCHEDULER_POLL_SECONDS", "20")))
 SCHEDULER_CLAIM_BATCH_SIZE = max(1, int(os.getenv("FLOWMIND_SCHEDULER_CLAIM_BATCH_SIZE", "3")))
 SCHEDULER_SESSION_TTL_SECONDS = max(600, int(os.getenv("FLOWMIND_SCHEDULER_SESSION_TTL_SECONDS", "7200")))
+# RPA tools are dispatched in the background; wait this long for them to finish before
+# judging a run. Keep it well below the Registry's schedule claim TTL (900s default).
+SCHEDULER_TASK_WAIT_SECONDS = max(0, int(os.getenv("FLOWMIND_SCHEDULER_TASK_WAIT_SECONDS", "180")))
+SCHEDULER_TASK_POLL_SECONDS = 3.0
+TERMINAL_TASK_STATUSES = {"success", "error", "timeout", "failed"}
 
 
 def scheduler_enabled() -> bool:
@@ -60,8 +67,11 @@ def _classify_schedule_result(result: Dict[str, Any]) -> Dict[str, Any]:
     tool_statuses = set(_collect_tool_trace_statuses(tool_trace))
     error_text = ""
 
-    if any(status in {"error", "timeout"} for status in tool_statuses):
+    if any(status in {"error", "timeout", "failed"} for status in tool_statuses):
         error_text = response_text or "工具执行存在失败步骤，需要人工关注。"
+        status = "needs_attention"
+    elif "pending" in tool_statuses:
+        error_text = "后台任务在等待时间内未完成，执行结果尚未确认，需要人工关注。"
         status = "needs_attention"
     elif plan_status == "needs_attention":
         recovery = (runtime_plan or {}).get("recovery") if isinstance((runtime_plan or {}).get("recovery"), dict) else {}
@@ -117,6 +127,45 @@ async def _mark_schedule_run_started(schedule_id: str, run_id: str, claim_token:
         f"/internal/schedules/{schedule_id}/runs/{run_id}/start",
         json_body={"claim_token": claim_token},
     )
+
+
+async def _await_background_tasks(
+    result: Dict[str, Any],
+    session_token: str,
+    *,
+    timeout_seconds: float = SCHEDULER_TASK_WAIT_SECONDS,
+    poll_seconds: float = SCHEDULER_TASK_POLL_SECONDS,
+) -> Dict[str, Any]:
+    """Wait (bounded) for the tasks this run dispatched and fold their real outcome
+    into tool_trace / runtime_plan, so the run is not judged on "pending"."""
+    tool_trace = result.get("tool_trace") if isinstance(result.get("tool_trace"), list) else []
+    runtime_plan = result.get("runtime_plan")
+    pending = {
+        str(item["task_id"]): item
+        for item in tool_trace
+        if isinstance(item, dict) and item.get("status") == "pending" and item.get("task_id")
+    }
+    deadline = time.monotonic() + max(0.0, timeout_seconds)
+    while pending:
+        for task_id in list(pending):
+            try:
+                task = await _proxy_json("GET", f"/task/{task_id}", session_token=session_token)
+            except Exception as exc:  # noqa: BLE001 - retry until the deadline
+                logger.warning("Failed to poll scheduled task %s: %s", task_id, exc)
+                continue
+            task_status = str((task or {}).get("status") or "").strip().lower()
+            if task_status not in TERMINAL_TASK_STATUSES:
+                continue
+            item = pending.pop(task_id)
+            item["status"] = "error" if task_status == "failed" else task_status
+            item["result_preview"] = _summarize_tool_output(
+                json.dumps((task or {}).get("result"), ensure_ascii=False, default=str)
+            )
+            runtime_plan = register_task_update(runtime_plan, task_id, item["status"], item["result_preview"])
+        if not pending or time.monotonic() >= deadline:
+            break
+        await asyncio.sleep(poll_seconds)
+    return {**result, "tool_trace": tool_trace, "runtime_plan": runtime_plan}
 
 
 async def _complete_schedule_run(
@@ -190,6 +239,8 @@ async def execute_claimed_schedule(item: Dict[str, Any]) -> None:
             },
             session_token=session_token,
         )
+        if isinstance(result, dict):
+            result = await _await_background_tasks(result, session_token)
         classified = _classify_schedule_result(result if isinstance(result, dict) else {})
         assistant_message = {
             "id": assistant_message_id,
