@@ -18,7 +18,40 @@ from __future__ import annotations
 import abc
 import asyncio
 import json
-from typing import Any, Callable, Dict
+import os
+import secrets
+from typing import Any, Callable, Dict, Optional
+
+TOKEN_ENV = "FLOWMIND_BRIDGE_TOKEN"
+TOKEN_FILE_ENV = "FLOWMIND_BRIDGE_TOKEN_FILE"
+DEFAULT_TOKEN_FILE = os.path.join(os.path.expanduser("~"), ".flowmind", "bridge_token")
+HELLO_TIMEOUT_SECONDS = 5.0
+
+
+def load_or_create_bridge_token(path: Optional[str] = None) -> str:
+    """Shared secret the Native Messaging Host must present on connect.
+
+    Taken from ``FLOWMIND_BRIDGE_TOKEN`` if set, otherwise from a per-user file
+    (created with 0600 permissions on first use). The browser launches the native host
+    as the same OS user, so it reads the same file without extra configuration.
+    """
+    explicit = str(os.getenv(TOKEN_ENV, "") or "").strip()
+    if explicit:
+        return explicit
+    token_path = path or os.getenv(TOKEN_FILE_ENV) or DEFAULT_TOKEN_FILE
+    try:
+        with open(token_path, encoding="utf-8") as handle:
+            existing = handle.read().strip()
+        if existing:
+            return existing
+    except FileNotFoundError:
+        pass
+    os.makedirs(os.path.dirname(token_path) or ".", mode=0o700, exist_ok=True)
+    token = secrets.token_urlsafe(32)
+    fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(token)
+    return token
 
 
 class CommandTransport(abc.ABC):
@@ -35,11 +68,18 @@ class CommandTransport(abc.ABC):
 class BridgeServerTransport(CommandTransport):
     """Local WebSocket server the Native Messaging Host connects back to."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8777, connect_timeout: float = 60.0):
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 8777,
+        connect_timeout: float = 60.0,
+        token: Optional[str] = None,
+    ):
         self.host = host
         self.port = port
         self.connect_timeout = connect_timeout
         self.actual_port = port
+        self.token = token
         self._server = None
         self._conn = None
         self._connected = asyncio.Event()
@@ -50,15 +90,37 @@ class BridgeServerTransport(CommandTransport):
 
         if self._server is not None:
             return
-        self._server = await websockets.serve(self._handler, self.host, self.port)
+        if not self.token:
+            self.token = load_or_create_bridge_token()
+        # origins=[None]: only accept clients that send no Origin header. The native
+        # host never sends one; every connection opened from a web page does.
+        self._server = await websockets.serve(self._handler, self.host, self.port, origins=[None])
         try:
             self.actual_port = self._server.sockets[0].getsockname()[1]
         except Exception:  # noqa: BLE001
             self.actual_port = self.port
 
+    async def _authenticate(self, websocket) -> bool:
+        """The first frame must be ``{"type": "hello", "token": <bridge token>}``."""
+        try:
+            hello = json.loads(await asyncio.wait_for(websocket.recv(), timeout=HELLO_TIMEOUT_SECONDS))
+        except Exception:  # noqa: BLE001 - timeout, malformed frame or early close
+            hello = None
+        token = hello.get("token") if isinstance(hello, dict) and hello.get("type") == "hello" else None
+        if isinstance(token, str) and token and secrets.compare_digest(token.encode(), self.token.encode()):
+            return True
+        try:
+            await websocket.close(code=1008, reason="bridge authentication failed")
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
     async def _handler(self, websocket, *_) -> None:
-        # A single bridge connection is expected (the native host). Last one wins.
+        # A single authenticated bridge connection is expected (the native host); a
+        # reconnecting host replaces a stale one.
         # (*_ tolerates the legacy 2-arg websockets handler signature.)
+        if not await self._authenticate(websocket):
+            return
         self._conn = websocket
         self._connected.set()
         try:

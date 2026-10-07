@@ -202,6 +202,21 @@ class DispatchEngine:
         logger.info("Async task %s dispatched to %s", task_id, machine_id)
         return {"status": "accepted", "task_id": task_id}
 
+    async def resolve_from_machine(self, machine_id: str, task_id: str, result: dict) -> bool:
+        """Accept a result only from the Agent the task was dispatched to.
+
+        In-flight tasks delivered through this instance (including ones forwarded from
+        another instance) are checked in memory; late results fall back to the DB record.
+        """
+        owner = self._task_machines.get(task_id) if task_id else None
+        if owner is None and task_id:
+            owner = ((await get_task(str(task_id))) or {}).get("machine_id")
+        if not owner or owner != machine_id:
+            logger.warning("Ignoring result for task %s reported by machine %s", task_id, machine_id)
+            return False
+        await self.resolve(task_id, result)
+        return True
+
     async def resolve(self, task_id: str, result: dict):
         task_status, normalized_result = _normalize_task_result(result)
         self._task_machines.pop(task_id, None)

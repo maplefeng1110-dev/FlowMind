@@ -1093,7 +1093,10 @@ async def ws_endpoint(ws: WebSocket):
                     msg.get("manifests", []),
                 )
             elif msg["type"] == "result":
-                await engine.resolve(msg["task_id"], msg["result"])
+                if not machine_id:
+                    logger.warning("Ignoring task result from an unregistered websocket")
+                    continue
+                await engine.resolve_from_machine(machine_id, msg.get("task_id"), msg.get("result"))
             elif msg["type"] == "heartbeat" and machine_id:
                 await update_machine_status(machine_id, "online")
     except WebSocketDisconnect:

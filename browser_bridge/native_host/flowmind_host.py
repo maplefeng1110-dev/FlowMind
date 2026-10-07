@@ -28,6 +28,22 @@ import time
 BRIDGE_URL = os.getenv("FLOWMIND_BROWSER_BRIDGE_URL", "ws://127.0.0.1:8777")
 LOG_PATH = os.getenv("FLOWMIND_HOST_LOG", os.path.join(tempfile.gettempdir(), "flowmind_host.log"))
 RETRY_SECONDS = 1.5
+# Shared secret the worker requires in the first frame (see agent/rpa_core/transport.py):
+# FLOWMIND_BRIDGE_TOKEN, else the per-user token file the worker creates.
+TOKEN_FILE = os.getenv("FLOWMIND_BRIDGE_TOKEN_FILE") or os.path.join(
+    os.path.expanduser("~"), ".flowmind", "bridge_token"
+)
+
+
+def _bridge_token():
+    token = os.getenv("FLOWMIND_BRIDGE_TOKEN", "").strip()
+    if token:
+        return token
+    try:
+        with open(TOKEN_FILE, encoding="utf-8") as handle:
+            return handle.read().strip()
+    except OSError:
+        return ""
 
 
 def _log(message):
@@ -113,6 +129,8 @@ async def main():
     while True:
         try:
             async with websockets.connect(BRIDGE_URL) as ws:
+                # Re-read each time: the worker may create the token file after we start.
+                await ws.send(json.dumps({"type": "hello", "token": _bridge_token()}))
                 _log("connected to worker bridge")
                 offline_announced = False
                 stop = asyncio.Event()
