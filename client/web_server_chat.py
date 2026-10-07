@@ -157,6 +157,16 @@ async def _maybe_run_slash_command(
             if rpa_id not in available_ids:
                 return _slash_reply(f"插件「{rpa_id}」当前离线（没有可用执行机）。", provider, emit_tool_events)
 
+            # Same guardrails as model-chosen calls: required params, confirmation, path scope.
+            guardrail = _evaluate_tool_constraints(rpa_id, params, rpa_by_id[rpa_id], messages, set(), 0)
+            if not guardrail["allowed"]:
+                return _slash_reply(
+                    f"未执行 `{rpa_id}`：{guardrail['blocked_message']}",
+                    provider,
+                    emit_tool_events,
+                    tool_trace=[{"name": rpa_id, "status": "blocked", "task_id": None}],
+                )
+
             result_text, status, task_id = await _execute_tool_call(
                 session, rpa_id, params, {}, async_ids, None, session_token,
             )
