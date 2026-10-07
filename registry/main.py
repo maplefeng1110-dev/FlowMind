@@ -163,10 +163,13 @@ async def upload_artifact(payload: ArtifactUpload, request: Request):
 
 @app.get("/artifacts/{run_id}/{name}")
 async def get_artifact(run_id: str, name: str, request: Request):
-    # Only the Web proxy (internal token) reads artifacts back.
-    _require_internal_request(request)
+    # Read back through the Web proxy on behalf of a user: snapshots are filed under the
+    # task id, so only the task's owner (or an admin) may see them.
+    current_user = await _resolve_request_user(request, require_user=True)
     path = ARTIFACTS_DIR / _safe_segment(run_id) / name
     if not ARTIFACT_NAME_RE.fullmatch(name) or not path.is_file():
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if not _is_admin_user(current_user) and not await get_task(run_id, owner_user_id=current_user["id"]):
         raise HTTPException(status_code=404, detail="artifact not found")
     return FileResponse(str(path), headers=ARTIFACT_RESPONSE_HEADERS)
 

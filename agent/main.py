@@ -111,7 +111,7 @@ async def run_agent():
                     async for raw in ws:
                         task = json.loads(raw)
                         logger.info(f"Received task: {task['rpa_id']} (ID: {task['task_id'][:8]})")
-                        result = await executor.run(task['rpa_id'], task['params'])
+                        result = await executor.run(task['rpa_id'], task['params'], task_id=task['task_id'])
                         await _send_json(ws, {
                             'type': 'result',
                             'task_id': task['task_id'],

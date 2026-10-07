@@ -7,6 +7,7 @@ from typing import Iterator, List, Optional, Tuple
 
 import yaml
 
+from agent.task_context import _current_task_id
 from utils.paths import UPLOAD_DIR
 from utils.plugin_result import error_result
 
@@ -101,7 +102,14 @@ class LocalExecutor:
                 return f"{name}={value}"
         return None
 
-    async def run(self, rpa_id: str, params: dict) -> dict:
+    async def run(self, rpa_id: str, params: dict, task_id: Optional[str] = None) -> dict:
+        context_token = _current_task_id.set(task_id)
+        try:
+            return await self._run(rpa_id, params)
+        finally:
+            _current_task_id.reset(context_token)
+
+    async def _run(self, rpa_id: str, params: dict) -> dict:
         plugin = self.plugins.get(rpa_id)
         if not plugin:
             return error_result(f"Plugin not found: {rpa_id}")
