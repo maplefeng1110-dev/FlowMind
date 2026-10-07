@@ -63,7 +63,7 @@ def _prompt_config(path: Path) -> None:
     machine = input(f"机器 ID [{default_id}]: ").strip() or default_id
     token = ""
     while not token:
-        token = input("Agent WS Token（需与后端 FLOWMIND_AGENT_WS_TOKEN 一致）: ").strip()
+        token = input("Agent WS Token（本机专属 token，或后端共享的 FLOWMIND_AGENT_WS_TOKEN）: ").strip()
     path.write_text(
         "\n".join(
             [

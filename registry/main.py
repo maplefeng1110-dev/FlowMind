@@ -4,7 +4,6 @@ import contextvars
 import json
 import os
 import re
-import secrets
 from contextlib import asynccontextmanager, suppress
 from typing import Any, Dict, List, Optional
 
@@ -63,6 +62,7 @@ from utils.internal_api import (
     INTERNAL_API_HEADER,
     USER_SESSION_HEADER,
     has_internal_api_token,
+    validate_agent_registration,
     validate_agent_token,
     validate_internal_api_token,
 )
@@ -186,18 +186,6 @@ def _require_internal_request(request: Request) -> None:
     provided_token = request.headers.get(INTERNAL_API_HEADER)
     if not validate_internal_api_token(provided_token):
         raise HTTPException(status_code=401, detail="Unauthorized internal API request")
-
-
-def _get_agent_ws_token() -> str:
-    return str(os.getenv("FLOWMIND_AGENT_WS_TOKEN", "") or "").strip()
-
-
-def _is_valid_agent_ws_token(provided_token: Any) -> bool:
-    expected_token = _get_agent_ws_token()
-    if not expected_token:
-        return False
-    normalized = str(provided_token or "").strip()
-    return bool(normalized) and secrets.compare_digest(normalized, expected_token)
 
 
 def _build_owner_scope(current_user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1080,11 +1068,14 @@ async def ws_endpoint(ws: WebSocket):
         async for raw in ws.iter_text():
             msg = json.loads(raw)
             if msg["type"] == "register":
-                if not _is_valid_agent_ws_token(msg.get("auth_token")):
-                    logger.warning("Rejected Agent websocket registration due to invalid auth token")
+                requested_machine_id = str(msg.get("machine_id") or "").strip()
+                if not requested_machine_id or not validate_agent_registration(
+                    requested_machine_id, msg.get("auth_token")
+                ):
+                    logger.warning("Rejected Agent websocket registration for machine %s", requested_machine_id or "?")
                     await ws.close(code=1008, reason="Invalid agent websocket token")
                     return
-                machine_id = msg["machine_id"]
+                machine_id = requested_machine_id
                 await engine.register(
                     machine_id,
                     ws,

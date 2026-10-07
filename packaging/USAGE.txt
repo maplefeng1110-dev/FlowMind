@@ -8,7 +8,8 @@ FlowMind Agent · 使用说明
 2) 首次运行会让你填写（之后写入同目录 flowmind-agent.env，可直接编辑）：
    - Registry WS 地址   例如 ws://192.168.1.10:8000/ws
    - 机器 ID            本机标识，可用默认
-   - Agent WS Token     必须与后端 .env 里的 FLOWMIND_AGENT_WS_TOKEN 一致
+   - Agent WS Token     本机专属 token（后端 FLOWMIND_AGENT_TOKENS_JSON 中为本机配置的值），
+                        未配置专属 token 时填后端 .env 里的共享 FLOWMIND_AGENT_WS_TOKEN
 
 3) 连接成功后，本机会出现在后端 Web 的“机器”列表里。
 

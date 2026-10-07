@@ -86,10 +86,14 @@ class _CentralLogHandler(logging.Handler):
         try:
             data = _json.dumps({"records": records}).encode("utf-8")
             headers = {"Content-Type": "application/json"}
-            # Registry requires the shared agent token on /logs (resolved lazily, see _env_cfg).
+            # Registry requires an agent token on /logs (resolved lazily, see _env_cfg);
+            # Registry/Web processes without one authenticate with the internal token.
             agent_token = _env_cfg("FLOWMIND_AGENT_WS_TOKEN")
+            internal_token = _env_cfg("FLOWMIND_INTERNAL_API_TOKEN") or _env_cfg("SECRET_KEY")
             if agent_token:
                 headers["X-FlowMind-Agent-Token"] = str(agent_token).strip()
+            elif internal_token:
+                headers["X-FlowMind-Internal-Token"] = str(internal_token).strip()
             req = urllib.request.Request(self._url, data=data, headers=headers, method="POST")
             urllib.request.urlopen(req, timeout=5)
         except Exception:

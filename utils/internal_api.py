@@ -1,4 +1,5 @@
 import hmac
+import json
 import os
 from typing import Dict, Optional
 
@@ -49,9 +50,39 @@ def build_agent_auth_headers(token: Optional[str] = None) -> Dict[str, str]:
     return {AGENT_TOKEN_HEADER: resolved} if resolved else {}
 
 
+def get_agent_token_map() -> Dict[str, str]:
+    """Per-machine agent tokens from FLOWMIND_AGENT_TOKENS_JSON ({"machine_id": "token"}).
+    A malformed value raises instead of silently falling back to the shared token."""
+    raw = str(os.getenv("FLOWMIND_AGENT_TOKENS_JSON", "") or "").strip()
+    if not raw:
+        return {}
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("FLOWMIND_AGENT_TOKENS_JSON must be a JSON object of machine_id -> token")
+    return {
+        str(machine_id).strip(): str(token).strip()
+        for machine_id, token in payload.items()
+        if str(machine_id).strip() and str(token or "").strip()
+    }
+
+
+def _token_matches(provided: str, expected: Optional[str]) -> bool:
+    return bool(provided) and bool(expected) and hmac.compare_digest(provided.encode(), str(expected).encode())
+
+
 def validate_agent_token(provided_token: Optional[str]) -> bool:
-    expected_token = get_agent_token()
+    """Any configured agent credential: the shared token or one machine's own token."""
     normalized = str(provided_token or "").strip()
-    if not expected_token or not normalized:
-        return False
-    return hmac.compare_digest(normalized, expected_token)
+    if _token_matches(normalized, get_agent_token()):
+        return True
+    return any(_token_matches(normalized, token) for token in get_agent_token_map().values())
+
+
+def validate_agent_registration(machine_id: Optional[str], provided_token: Optional[str]) -> bool:
+    """A machine listed in FLOWMIND_AGENT_TOKENS_JSON must register with its own token;
+    any other machine may use the shared FLOWMIND_AGENT_WS_TOKEN (if one is set)."""
+    normalized = str(provided_token or "").strip()
+    machine_token = get_agent_token_map().get(str(machine_id or "").strip())
+    if machine_token:
+        return _token_matches(normalized, machine_token)
+    return _token_matches(normalized, get_agent_token())
