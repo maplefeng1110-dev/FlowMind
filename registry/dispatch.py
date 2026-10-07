@@ -194,9 +194,11 @@ class DispatchEngine:
         try:
             delivered = await self._deliver(payload)
         except Exception as exc:
+            self._fail(task_id)
             await update_task_result(task_id, "error", {"status": "error", "message": "Failed to dispatch task to agent", "error": str(exc)})
             raise RuntimeError(f"Failed to dispatch async task {task_id} to {machine_id}: {exc}") from exc
         if not delivered:
+            self._fail(task_id)
             await update_task_result(task_id, "error", {"status": "error", "message": "Machine offline", "error": f"Machine offline: {machine_id}"})
             raise RuntimeError(f"Machine offline: {machine_id}")
         logger.info("Async task %s dispatched to %s", task_id, machine_id)
