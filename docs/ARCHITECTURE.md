@@ -458,9 +458,7 @@ tail -f logs/invoice_ocr.log
 
 ### 9.3 测试
 
-当前公开仓库不附带 `tests/` 目录。
-
-如果你在私有分支或企业内部分发版本中维护测试，仍建议基于 `pytest` 保持回归集，并继续复用仓库中的 `pytest.ini`。
+回归测试位于 `tests/`，基于 `pytest`（配置见仓库根目录的 `pytest.ini`），由 GitHub Actions 在每次推送和 PR 时运行。本地执行 `pytest -q` 即可。
 
 ## 10. 架构优化建议
 

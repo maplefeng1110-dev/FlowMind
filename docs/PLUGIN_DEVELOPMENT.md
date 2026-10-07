@@ -404,7 +404,7 @@ if __name__ == "__main__":
 
 ### 6.2 集成测试
 
-公开仓库默认不附带 `tests/` 目录；如果你在私有分支或企业内部分发版本中维护测试，可以继续沿用 `pytest` 写集成测试，例如：
+仓库的回归测试位于 `tests/`（可参考 `tests/test_executor.py`、`tests/test_mock_plugins.py`）。为自己的插件写集成测试时，可以沿用 `pytest`，例如：
 
 ```python
 import pytest

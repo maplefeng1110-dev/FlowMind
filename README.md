@@ -487,6 +487,11 @@ http://127.0.0.1:5173
 
 ## 测试说明
 
-当前公开仓库不附带 `tests/` 目录。
+回归测试位于 `tests/`，GitHub Actions 会在每次推送和 PR 时运行（见 `.github/workflows/ci.yml`）。本地运行：
 
-如果你在自己的私有分支里补充回归或二次开发测试，项目根目录仍保留了 `pytest.ini`，可以继续按 `pytest` 约定组织测试文件。
+```bash
+pip install -r requirements.txt
+pytest -q
+```
+
+`tests/test_extension_click.py` 会在真实 Chromium 中运行浏览器扩展脚本，未安装 Playwright 时自动跳过；`tests/test_frontend_escaping.py` 需要本机有 `node`。

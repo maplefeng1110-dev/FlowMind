@@ -275,16 +275,6 @@ def test_remote_snapshot_falls_back_to_local(tmp_path):
     assert os.path.exists(result["html"])
 
 
-def test_remote_snapshot_falls_back_to_local(tmp_path):
-    from agent.rpa_core.snapshots import RemoteSnapshotSink
-
-    # No server at this address -> upload fails -> falls back to local files.
-    sink = RemoteSnapshotSink("http://127.0.0.1:1/nope", task_id="t", fallback_dir=str(tmp_path))
-    result = run_async(sink.save(index=0, step="click(#x)", error="boom", png=b"PNG", html="<h1>x</h1>"))
-    assert os.path.exists(result["screenshot"])
-    assert os.path.exists(result["html"])
-
-
 # -- ExtensionDriver over the browser bridge protocol -----------------------
 def _browser_emulator(dom, missing=()):
     """Return (responder, state) emulating the extension/content-script side."""
