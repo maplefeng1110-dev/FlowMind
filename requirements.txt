@@ -1,7 +1,9 @@
 fastapi
 uvicorn
 websockets
-mcp
+# registry/main.py uses the low-level mcp.server.Server decorator API, which mcp 2.x
+# removed; registry/mcp_transport.py supports both pre- and post-1.8 message framing.
+mcp>=1.6,<2
 aiosqlite
 pydantic
 pyyaml
@@ -9,7 +11,8 @@ pytest
 pytest-asyncio
 python-dotenv
 openai
-volcengine-python-sdk-ark
+# Volcengine Ark (Doubao) is reached via the OpenAI-compatible client (ai/router.py,
+# client/ai_manager.py base_url=...volces.com) -- no Volcengine SDK dependency.
 requests
 openpyxl
 python-docx

@@ -14,7 +14,22 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+try:  # mcp >= 1.8 wraps JSON-RPC messages in SessionMessage on the server streams
+    from mcp.shared.message import SessionMessage
+except ImportError:  # pragma: no cover - mcp < 1.8 passes bare JSONRPCMessage
+    SessionMessage = None
+
 logger = logging.getLogger(__name__)
+
+
+def _wrap_incoming(message: types.JSONRPCMessage) -> Any:
+    return SessionMessage(message) if SessionMessage is not None else message
+
+
+def _unwrap_outgoing(message: Any) -> types.JSONRPCMessage:
+    if SessionMessage is not None and isinstance(message, SessionMessage):
+        return message.message
+    return message
 
 
 class SessionBindingError(Exception):
@@ -78,7 +93,7 @@ class SessionBoundSseTransport:
                     await sse_stream_writer.send(
                         {
                             "event": "message",
-                            "data": message.model_dump_json(by_alias=True, exclude_none=True),
+                            "data": _unwrap_outgoing(message).model_dump_json(by_alias=True, exclude_none=True),
                         }
                     )
 
@@ -124,4 +139,4 @@ class SessionBoundSseTransport:
 
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
-        await writer.send(message)
+        await writer.send(_wrap_incoming(message))

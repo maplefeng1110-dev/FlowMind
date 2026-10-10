@@ -254,9 +254,9 @@ async def wait_for_bridge(transport, ext_dir, launcher, base_ids):
 
 
 async def run_flow(driver, flow, db=None, gateway_url=None):
-    from agent.plugins.rpa_flow.ai_gateway import AIGatewayClient
-    from agent.plugins.rpa_flow.flow_dsl import load_flow
-    from agent.plugins.rpa_flow.interpreter import FlowRunner
+    from agent.rpa_core.ai_gateway import AIGatewayClient
+    from agent.rpa_core.flow_dsl import load_flow
+    from agent.rpa_core.interpreter import FlowRunner
 
     ai = AIGatewayClient(gateway_url) if gateway_url else None
     runner = FlowRunner(driver, ai_gateway=ai, db_writer=db, env={})
@@ -324,9 +324,9 @@ async def main_async():
     except Exception:  # noqa: BLE001
         skip("python 'websockets' package not installed")
 
-    from agent.plugins.rpa_flow.driver import ExtensionDriver
-    from agent.plugins.rpa_flow.results_db import SqliteResultWriter
-    from agent.plugins.rpa_flow.transport import BridgeServerTransport
+    from agent.rpa_core.driver import ExtensionDriver
+    from agent.rpa_core.results_db import SqliteResultWriter
+    from agent.rpa_core.transport import BridgeServerTransport
 
     os.environ["FLOWMIND_BROWSER_BRIDGE_PORT"] = str(BRIDGE_PORT)
     gateway_url = os.getenv("FLOWMIND_AI_GATEWAY_URL")

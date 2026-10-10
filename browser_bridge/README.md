@@ -67,6 +67,13 @@ Browser → worker:
 
 > Security: `host_permissions: <all_urls>` and `allowed_origins` are broad for setup
 > convenience — tighten both to your target sites / extension id for production.
+>
+> Bridge authentication: the worker only accepts a connection whose first frame is
+> `{"type": "hello", "token": ...}` carrying the shared bridge token, and refuses any
+> connection that sends an `Origin` header. The token comes from `FLOWMIND_BRIDGE_TOKEN`,
+> or else from `~/.flowmind/bridge_token` (override with `FLOWMIND_BRIDGE_TOKEN_FILE`),
+> which the worker creates with `0600` permissions on first run and the native host reads.
+> Run the worker and the browser as the same OS user, or set the variable for both.
 
 ## Automated end-to-end acceptance
 

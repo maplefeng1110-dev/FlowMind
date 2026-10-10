@@ -1,16 +1,21 @@
 import asyncio
+import base64
 import contextvars
 import json
 import os
+import re
 import secrets
 from contextlib import asynccontextmanager, suppress
 from typing import Any, Dict, List, Optional
 
 import mcp.types as types
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from mcp.server import Server
 from pydantic import BaseModel
 from starlette.responses import Response
+
+from utils.paths import DATA_DIR
 
 from registry.db import (
     claim_due_task_schedules,
@@ -41,7 +46,9 @@ from registry.db import (
     list_machines,
     list_task_schedule_runs,
     list_task_schedules,
+    insert_logs,
     list_tasks,
+    query_logs,
     mark_task_schedule_run_started,
     set_task_schedule_active,
     touch_common_task,
@@ -51,7 +58,14 @@ from registry.db import (
     update_task_schedule,
     update_machine_status,
 )
-from utils.internal_api import INTERNAL_API_HEADER, USER_SESSION_HEADER, has_internal_api_token, validate_internal_api_token
+from utils.internal_api import (
+    AGENT_TOKEN_HEADER,
+    INTERNAL_API_HEADER,
+    USER_SESSION_HEADER,
+    has_internal_api_token,
+    validate_agent_token,
+    validate_internal_api_token,
+)
 from utils.logger import setup_logger
 
 from .dispatch import TERMINAL_TASK_STATUSES, engine
@@ -61,14 +75,101 @@ logger = setup_logger("Registry", "registry.log")
 
 app = FastAPI(title="RPA Registry")
 
+
+def _require_worker_request(request: Request) -> None:
+    """Worker-facing endpoints (AI gateway, artifact/log ingest) accept either the
+    shared agent token or the Web->Registry internal token."""
+    if validate_agent_token(request.headers.get(AGENT_TOKEN_HEADER)):
+        return
+    if validate_internal_api_token(request.headers.get(INTERNAL_API_HEADER)):
+        return
+    raise HTTPException(status_code=401, detail="Unauthorized worker request")
+
+
 # AI routing gateway exposed to Robot Workers (visual locate / structured extract).
 # Additive and self-contained: a failure here must never block registry startup.
 try:
     from ai.gateway_api import router as ai_gateway_router
 
-    app.include_router(ai_gateway_router)
+    app.include_router(ai_gateway_router, dependencies=[Depends(_require_worker_request)])
 except Exception as exc:  # noqa: BLE001
     logger.warning("AI gateway not mounted: %s", exc)
+
+MAX_LOG_BATCH = 500
+
+
+class LogBatch(BaseModel):
+    records: List[Dict[str, Any]]
+
+
+@app.post("/logs")
+async def ingest_logs(batch: LogBatch, request: Request):
+    _require_worker_request(request)
+    count = await insert_logs((batch.records or [])[:MAX_LOG_BATCH])
+    return {"ingested": count}
+
+
+@app.get("/logs")
+async def get_app_logs(
+    limit: int = 200,
+    level: Optional[str] = None,
+    source: Optional[str] = None,
+    keyword: Optional[str] = None,
+    request: Request = None,
+):
+    await _resolve_request_user(request, require_admin=True)
+    return await query_logs(limit=limit, level=level, source=source, keyword=keyword)
+
+
+# ---- Failure-snapshot artifacts (uploaded by workers, served back for audit) ----
+ARTIFACTS_DIR = DATA_DIR / "artifacts"
+ARTIFACT_KINDS = {"png", "html"}
+ARTIFACT_NAME_RE = re.compile(r"^step\d+\.(?:png|html)$")
+MAX_ARTIFACT_BYTES = max(1, int(os.getenv("FLOWMIND_MAX_ARTIFACT_BYTES", str(10 * 1024 * 1024))))
+# Snapshot HTML is captured from arbitrary third-party pages: serve it inert, never as
+# an active document on our origin.
+ARTIFACT_RESPONSE_HEADERS = {"Content-Security-Policy": "sandbox", "X-Content-Type-Options": "nosniff"}
+
+
+class ArtifactUpload(BaseModel):
+    run_id: str
+    index: int = 0
+    kind: str = "png"
+    content_b64: str
+
+
+def _safe_segment(value: str) -> str:
+    return "".join(ch for ch in str(value) if ch.isalnum() or ch in "-_") or "x"
+
+
+@app.post("/artifacts")
+async def upload_artifact(payload: ArtifactUpload, request: Request):
+    _require_worker_request(request)
+    if payload.kind not in ARTIFACT_KINDS:
+        raise HTTPException(status_code=400, detail=f"unsupported artifact kind: {payload.kind}")
+    try:
+        content = base64.b64decode(payload.content_b64, validate=True)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"invalid artifact content: {exc}") from exc
+    if len(content) > MAX_ARTIFACT_BYTES:
+        raise HTTPException(status_code=413, detail="artifact too large")
+    run_id = _safe_segment(payload.run_id)
+    run_dir = ARTIFACTS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    name = f"step{max(0, int(payload.index))}.{payload.kind}"
+    (run_dir / name).write_bytes(content)
+    return {"url": f"/artifacts/{run_id}/{name}"}
+
+
+@app.get("/artifacts/{run_id}/{name}")
+async def get_artifact(run_id: str, name: str, request: Request):
+    # Only the Web proxy (internal token) reads artifacts back.
+    _require_internal_request(request)
+    path = ARTIFACTS_DIR / _safe_segment(run_id) / name
+    if not ARTIFACT_NAME_RE.fullmatch(name) or not path.is_file():
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return FileResponse(str(path), headers=ARTIFACT_RESPONSE_HEADERS)
+
 
 mcp_server = Server("rpa-registry")
 HEARTBEAT_TIMEOUT_SEC = max(5, int(os.getenv("AGENT_HEARTBEAT_TIMEOUT_SEC", "45")))
@@ -471,9 +572,16 @@ async def check_task(task_id: str, request: Request):
 
 
 @app.get("/tasks")
-async def get_tasks(limit: int = 50, request: Request = None):
+async def get_tasks(
+    limit: int = 50,
+    keyword: Optional[str] = None,
+    status: Optional[str] = None,
+    request: Request = None,
+):
     current_user = await _resolve_request_user(request, require_user=True)
-    return await list_tasks(limit=limit, **_build_owner_scope(current_user))
+    return await list_tasks(
+        limit=limit, keyword=keyword, status=status, **_build_owner_scope(current_user)
+    )
 
 
 @app.delete("/task/{task_id}")
@@ -985,7 +1093,10 @@ async def ws_endpoint(ws: WebSocket):
                     msg.get("manifests", []),
                 )
             elif msg["type"] == "result":
-                await engine.resolve(msg["task_id"], msg["result"])
+                if not machine_id:
+                    logger.warning("Ignoring task result from an unregistered websocket")
+                    continue
+                await engine.resolve_from_machine(machine_id, msg.get("task_id"), msg.get("result"))
             elif msg["type"] == "heartbeat" and machine_id:
                 await update_machine_status(machine_id, "online")
     except WebSocketDisconnect:
@@ -1001,4 +1112,9 @@ async def ws_endpoint(ws: WebSocket):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("registry.main:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run(
+        "registry.main:app",
+        host=os.getenv("REGISTRY_HOST", "127.0.0.1"),
+        port=int(os.getenv("REGISTRY_PORT", "8000")),
+        reload=False,
+    )
