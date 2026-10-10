@@ -999,6 +999,21 @@ async def update_task_status(task_id: str, status: str):
         await db.commit()
 
 
+async def list_unfinished_task_ids(machine_id: str, older_than_seconds: int = 0) -> List[str]:
+    """This machine's pending/running tasks created at least `older_than_seconds` ago."""
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """
+            SELECT id FROM tasks
+            WHERE machine_id = ? AND status IN ('pending', 'running')
+              AND created_at <= datetime('now', ?)
+            """,
+            (machine_id, f"-{max(0, int(older_than_seconds))} seconds"),
+        ) as cursor:
+            return [row[0] for row in await cursor.fetchall()]
+
+
 async def update_task_result(task_id: str, status: str, result: dict = None):
     async with aiosqlite.connect(DB_PATH) as db:
         result_text = json.dumps(result, ensure_ascii=False) if result is not None else None

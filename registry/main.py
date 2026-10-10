@@ -1095,6 +1095,7 @@ async def ws_endpoint(ws: WebSocket):
                     msg.get("system_info", {}),
                     msg.get("rpas", []),
                     msg.get("manifests", []),
+                    running_task_ids=msg.get("running_task_ids"),
                 )
             elif msg["type"] == "result":
                 if not machine_id:
@@ -1106,11 +1107,11 @@ async def ws_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         logger.info("Agent websocket disconnected: %s", machine_id)
         if machine_id:
-            await engine.disconnect(machine_id)
+            await engine.disconnect(machine_id, ws)
     except Exception as exc:
         logger.error("Error in websocket: %s", exc)
         if machine_id:
-            await engine.disconnect(machine_id)
+            await engine.disconnect(machine_id, ws)
 
 
 if __name__ == "__main__":

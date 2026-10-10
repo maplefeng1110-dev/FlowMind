@@ -10,11 +10,21 @@ from typing import Dict, Optional
 from fastapi import WebSocket
 
 from .broker import Broker
-from .db import create_task, get_task, register_machine, update_machine_status, update_task_result
+from .db import (
+    create_task,
+    get_task,
+    list_unfinished_task_ids,
+    register_machine,
+    update_machine_status,
+    update_task_result,
+)
 from .kv import build_kv
 
 logger = logging.getLogger(__name__)
 TERMINAL_TASK_STATUSES = {"success", "error", "timeout", "failed"}
+# A task row this young may still be on its way to the Agent, so a reconnecting Agent
+# that does not list it yet has not lost it.
+LOST_TASK_GRACE_SEC = 10
 
 
 def _normalize_task_result(result: dict) -> tuple:
@@ -65,13 +75,45 @@ class DispatchEngine:
         system_info: dict,
         rpas: list,
         manifests: Optional[list] = None,
+        running_task_ids: Optional[list] = None,
     ):
+        # Before the new connection can receive anything, settle what the previous one left
+        # behind. Agents that predate the report send no list and are left as they were.
+        if isinstance(running_task_ids, list):
+            try:
+                await self._fail_lost_tasks(machine_id, {str(task_id) for task_id in running_task_ids})
+            except Exception:
+                logger.exception("Could not settle lost tasks for %s", machine_id)
         self.connections[machine_id] = ws
         await register_machine(machine_id, system_info, rpas, manifests)
         await self.broker.machines.set_location(machine_id, self.instance_id)
         logger.info("[+] Agent online: %s (instance %s)", machine_id, self.instance_id)
 
-    async def disconnect(self, machine_id: str):
+    async def _fail_lost_tasks(self, machine_id: str, still_running: set) -> None:
+        """The Agent reconnected and listed the tasks it still has; the rest of its
+        unfinished tasks went down with the old connection or a restart."""
+
+        lost = [task_id for task_id, owner in self._task_machines.items() if owner == machine_id]
+        lost += await list_unfinished_task_ids(machine_id, LOST_TASK_GRACE_SEC)
+        failure = {
+            "status": "error",
+            "message": "Task lost: the Agent restarted or lost its connection before reporting a result",
+            "error": "Task lost",
+        }
+        for task_id in dict.fromkeys(lost):
+            if task_id in still_running:
+                continue
+            self._task_machines.pop(task_id, None)
+            await update_task_result(task_id, "error", failure)
+            await self.broker.results.publish(task_id, failure)
+            logger.warning("Task %s on %s was lost; marked as failed", task_id, machine_id)
+
+    async def disconnect(self, machine_id: str, ws: Optional[WebSocket] = None):
+        if ws is not None and self.connections.get(machine_id) is not ws:
+            # The Agent already reconnected and its new registration settled the tasks
+            # of this connection; cleaning up here would evict the live one.
+            logger.info("Stale connection of %s closed", machine_id)
+            return
         self.connections.pop(machine_id, None)
         await update_machine_status(machine_id, "offline")
         # Only clear the shared location if it still points at this instance.

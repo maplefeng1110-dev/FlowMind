@@ -41,11 +41,13 @@ def agent(monkeypatch):
     monkeypatch.setattr(agent_main, "_send_json", send)
     monkeypatch.setattr(agent_main, "_exclusive_locks", {}, raising=False)
     monkeypatch.setattr(agent_main, "_running_tasks", set(), raising=False)
+    monkeypatch.setattr(agent_main, "_inflight_task_ids", set())
+    monkeypatch.setattr(agent_main, "_link", {"ws": object(), "send_lock": None, "up": None})
     return state
 
 
 def _start(task_id, rpa_id, **params):
-    return agent_main._start_task(object(), {"task_id": task_id, "rpa_id": rpa_id, "params": params}, asyncio.Lock())
+    return agent_main._start_task({"task_id": task_id, "rpa_id": rpa_id, "params": params})
 
 
 @pytest.mark.asyncio

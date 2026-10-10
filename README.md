@@ -204,7 +204,7 @@ FlowMind 分为三个核心组件，Agent 可以部署在多台机器上：
 - **已支持**：多台 Agent 同时在线，按插件派发到在线机器（也可指定 `machine_id`），每台机器可用独立 token（`FLOWMIND_AGENT_TOKENS_JSON`）；配置 `REDIS_URL` 后，多个 Registry 实例共享在线表、跨实例转发任务与回传结果，并使用分布式锁。
 - **尚不支持**：
   - 持久化是单个 SQLite 文件（`FLOWMIND_REGISTRY_DB`，默认 `data/registry.db`）。多个 Registry 实例必须读写同一个文件，因此只适合同一台主机上的多进程，不适合跨主机部署，也不要把它放在网络文件系统上。
-  - 没有故障转移：等待中的派发由发起它的 Registry 进程在内存里持有，进程重启后等待丢失，任务记录停留在 `running`。
+  - 没有故障转移：等待中的同步调用由发起它的 Registry 进程在内存里持有，进程重启后这次调用会失败。任务记录不会一直停在 `running`：Agent 重连后会补发断线期间完成的结果（最多等 5 分钟，`AGENT_RESULT_DELIVERY_WAIT_SEC`），并在重新注册时报告手上还在跑的任务，Registry 把这台机器其余未结束的任务标为失败。
   - Web 只连一个 `REGISTRY_API_URL`，Agent 只连一个 `REGISTRY_URL`；多实例需要前置负载均衡，且 MCP SSE 会话保存在实例内存里，需要开启会话保持。
   - Redis 只做协调、不做持久化（见 [DEPLOYMENT.md](docs/DEPLOYMENT.md)）。
 

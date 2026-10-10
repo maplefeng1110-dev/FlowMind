@@ -3,6 +3,7 @@ import contextlib
 import json
 import platform
 import sys
+import time
 from pathlib import Path
 
 import websockets
@@ -21,6 +22,8 @@ load_agent_env()
 REGISTRY_URL = get_agent_env('REGISTRY_URL', 'ws://127.0.0.1:8000/ws')
 MACHINE_ID = get_agent_env('MACHINE_ID', 'local-dev')
 HEARTBEAT_INTERVAL_SEC = max(2.0, float(get_agent_env('AGENT_HEARTBEAT_INTERVAL_SEC', '10')))
+# How long a finished task waits for a Registry connection to report its result.
+RESULT_DELIVERY_WAIT_SEC = max(1.0, float(get_agent_env('AGENT_RESULT_DELIVERY_WAIT_SEC', '300')))
 
 if AGENT_ENV_PATH.exists():
     logger.info(f"Loaded Agent environment from {AGENT_ENV_PATH}")
@@ -65,6 +68,8 @@ def _build_register_payload() -> dict:
         'system_info': _build_system_info(),
         'rpas': list(executor.plugins.keys()),
         'manifests': list(executor.manifests.values()),
+        # Lets the Registry tell which of this machine's tasks were lost with an old connection.
+        'running_task_ids': sorted(_inflight_task_ids),
     }
     auth_token = _get_agent_ws_token()
     if auth_token:
@@ -97,6 +102,49 @@ async def _heartbeat_loop(ws, send_lock: asyncio.Lock):
 _exclusive_locks: dict[str, asyncio.Lock] = {}
 # Strong references keep running tasks alive, also across reconnects.
 _running_tasks: set[asyncio.Task] = set()
+# Tasks received but not yet reported, listed when (re)registering.
+_inflight_task_ids: set[str] = set()
+# The live Registry connection: a result goes out on whichever connection is up when its
+# task finishes, so a reconnect in the middle of a long task does not lose the result.
+_link: dict = {"ws": None, "send_lock": None, "up": None}
+
+
+def _link_up() -> asyncio.Event:
+    if _link["up"] is None:
+        _link["up"] = asyncio.Event()
+    return _link["up"]
+
+
+def _attach(ws, send_lock: asyncio.Lock) -> None:
+    _link.update(ws=ws, send_lock=send_lock)
+    _link_up().set()
+
+
+def _detach(ws) -> None:
+    if _link["ws"] is ws:
+        _link.update(ws=None, send_lock=None)
+        _link_up().clear()
+
+
+async def _deliver_result(task_id: str, result: dict) -> bool:
+    # Serialise up front so a send can only fail because of the connection.
+    payload = json.loads(json.dumps({'type': 'result', 'task_id': task_id, 'result': result}, default=str))
+    deadline = time.monotonic() + RESULT_DELIVERY_WAIT_SEC
+    while True:
+        ws, send_lock = _link["ws"], _link["send_lock"]
+        if ws is not None:
+            try:
+                await _send_json(ws, payload, send_lock)
+                return True
+            except Exception as exc:
+                logger.warning(f"Could not send the result of task {task_id[:8]} ({exc}); waiting for a reconnect")
+                _detach(ws)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            logger.error(f"Dropped the result of task {task_id[:8]}: no Registry connection for {RESULT_DELIVERY_WAIT_SEC:.0f}s")
+            return False
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(_link_up().wait(), timeout=remaining)
 
 
 def _exclusive_key(rpa_id: str) -> str:
@@ -104,26 +152,26 @@ def _exclusive_key(rpa_id: str) -> str:
     return "browser" if "browser" in capabilities else rpa_id
 
 
-async def _handle_task(ws, task: dict, send_lock: asyncio.Lock) -> None:
+async def _handle_task(task: dict) -> None:
     task_id = task['task_id']
-    key = _exclusive_key(task['rpa_id'])
-    lock = _exclusive_locks.setdefault(key, asyncio.Lock())
-    async with lock:
-        try:
-            result = await executor.run(task['rpa_id'], task['params'], task_id=task_id)
-        except Exception as exc:  # the executor already turns plugin failures into results
-            logger.exception(f"Task {task_id[:8]} failed inside the agent")
-            result = {"status": "error", "message": "Agent failed to run the task", "error": str(exc)}
+    _inflight_task_ids.add(task_id)
     try:
-        await _send_json(ws, {'type': 'result', 'task_id': task_id, 'result': result}, send_lock)
-    except Exception as exc:
-        logger.warning(f"Could not send the result of task {task_id[:8]}: {exc}")
-        return
-    logger.info(f"Task {task_id[:8]} completed with status: {result.get('status')}")
+        key = _exclusive_key(task['rpa_id'])
+        lock = _exclusive_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            try:
+                result = await executor.run(task['rpa_id'], task['params'], task_id=task_id)
+            except Exception as exc:  # the executor already turns plugin failures into results
+                logger.exception(f"Task {task_id[:8]} failed inside the agent")
+                result = {"status": "error", "message": "Agent failed to run the task", "error": str(exc)}
+        if await _deliver_result(task_id, result):
+            logger.info(f"Task {task_id[:8]} completed with status: {result.get('status')}")
+    finally:
+        _inflight_task_ids.discard(task_id)
 
 
-def _start_task(ws, task: dict, send_lock: asyncio.Lock) -> asyncio.Task:
-    job = asyncio.create_task(_handle_task(ws, task, send_lock))
+def _start_task(task: dict) -> asyncio.Task:
+    job = asyncio.create_task(_handle_task(task))
     _running_tasks.add(job)
     job.add_done_callback(_running_tasks.discard)
     return job
@@ -141,6 +189,7 @@ async def run_agent():
                 register_payload = _build_register_payload()
                 plugins = register_payload["rpas"]
                 await _send_json(ws, register_payload, send_lock)
+                _attach(ws, send_lock)
                 logger.info(f"Registered on machine {MACHINE_ID} with plugins: {plugins}")
                 heartbeat_task = asyncio.create_task(_heartbeat_loop(ws, send_lock))
 
@@ -149,8 +198,9 @@ async def run_agent():
                     async for raw in ws:
                         task = json.loads(raw)
                         logger.info(f"Received task: {task['rpa_id']} (ID: {task['task_id'][:8]})")
-                        _start_task(ws, task, send_lock)
+                        _start_task(task)
                 finally:
+                    _detach(ws)
                     heartbeat_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await heartbeat_task
