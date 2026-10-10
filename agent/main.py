@@ -91,6 +91,44 @@ async def _heartbeat_loop(ws, send_lock: asyncio.Lock):
             return
 
 
+# Tasks of different plugins run side by side, so a quick sync tool is not stuck behind a
+# long browser flow; a plugin never overlaps with itself, and browser plugins take turns
+# because they drive the one connected browser.
+_exclusive_locks: dict[str, asyncio.Lock] = {}
+# Strong references keep running tasks alive, also across reconnects.
+_running_tasks: set[asyncio.Task] = set()
+
+
+def _exclusive_key(rpa_id: str) -> str:
+    capabilities = (executor.manifests.get(rpa_id) or {}).get("capabilities") or []
+    return "browser" if "browser" in capabilities else rpa_id
+
+
+async def _handle_task(ws, task: dict, send_lock: asyncio.Lock) -> None:
+    task_id = task['task_id']
+    key = _exclusive_key(task['rpa_id'])
+    lock = _exclusive_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        try:
+            result = await executor.run(task['rpa_id'], task['params'], task_id=task_id)
+        except Exception as exc:  # the executor already turns plugin failures into results
+            logger.exception(f"Task {task_id[:8]} failed inside the agent")
+            result = {"status": "error", "message": "Agent failed to run the task", "error": str(exc)}
+    try:
+        await _send_json(ws, {'type': 'result', 'task_id': task_id, 'result': result}, send_lock)
+    except Exception as exc:
+        logger.warning(f"Could not send the result of task {task_id[:8]}: {exc}")
+        return
+    logger.info(f"Task {task_id[:8]} completed with status: {result.get('status')}")
+
+
+def _start_task(ws, task: dict, send_lock: asyncio.Lock) -> asyncio.Task:
+    job = asyncio.create_task(_handle_task(ws, task, send_lock))
+    _running_tasks.add(job)
+    job.add_done_callback(_running_tasks.discard)
+    return job
+
+
 async def run_agent():
     if not _get_agent_ws_token():
         logger.warning("FLOWMIND_AGENT_WS_TOKEN is not configured; registry websocket authentication will fail.")
@@ -107,17 +145,11 @@ async def run_agent():
                 heartbeat_task = asyncio.create_task(_heartbeat_loop(ws, send_lock))
 
                 try:
-                    # 监听任务
+                    # 监听任务：每个任务单独运行，长流程不会挡住其他插件
                     async for raw in ws:
                         task = json.loads(raw)
                         logger.info(f"Received task: {task['rpa_id']} (ID: {task['task_id'][:8]})")
-                        result = await executor.run(task['rpa_id'], task['params'], task_id=task['task_id'])
-                        await _send_json(ws, {
-                            'type': 'result',
-                            'task_id': task['task_id'],
-                            'result': result
-                        }, send_lock)
-                        logger.info(f"Task completed with status: {result['status']}")
+                        _start_task(ws, task, send_lock)
                 finally:
                     heartbeat_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):

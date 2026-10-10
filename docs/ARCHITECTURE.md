@@ -194,6 +194,8 @@ sequenceDiagram
 - `execution: "sync"`：Web 调 `POST /dispatch/sync`，在同一个 HTTP 请求里等到 Agent 的 `result`（Registry 最长等 120 秒，Agent 离线返回 503、超时返回 504），把真实结果作为工具消息交给模型，模型可以在同一轮里继续调用下一个工具。
 - 不写 `execution`（后台）：Web 调 `POST /dispatch/async`，立即拿到 `task_id`，模型看到的是 `pending`；结果写入任务表，由任务中心和前端轮询展示。
 
+Agent 收到任务后各自起一个协程执行：不同插件并行，同一插件依次执行，声明了 `browser` 能力的插件共用一个浏览器、彼此轮流。这样一个长时间的浏览器流程不会让同一台机器上的同步工具等到超时。
+
 ## 5. 数据模型
 
 ### 5.1 数据库结构
