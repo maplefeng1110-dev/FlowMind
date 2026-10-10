@@ -91,4 +91,6 @@ tool_profile:
     - "data/exports"
   max_retries: 1
 timeout_sec: 20
+# Fast enough to wait on: the model sees the real result in the same turn.
+execution: "sync"
 owner: "system"

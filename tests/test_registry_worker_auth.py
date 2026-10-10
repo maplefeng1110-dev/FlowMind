@@ -59,15 +59,13 @@ def test_artifact_upload_rejects_unknown_kind_and_bad_payload(client):
     assert client.post("/artifacts", json=bad, headers=AGENT).status_code == 400
 
 
-def test_artifact_read_is_internal_only_and_served_inert(client):
+def test_artifact_read_needs_internal_token_and_user_session(client):
     client.post("/artifacts", json=_artifact(kind="html", content=b"<p>snapshot</p>"), headers=AGENT)
     assert client.get("/artifacts/run-1/step0.html").status_code == 401
     assert client.get("/artifacts/run-1/step0.html", headers=AGENT).status_code == 401
-    response = client.get("/artifacts/run-1/step0.html", headers=INTERNAL)
-    assert response.status_code == 200
-    assert response.headers["content-security-policy"] == "sandbox"
-    assert response.headers["x-content-type-options"] == "nosniff"
-    assert client.get("/artifacts/run-1/other.txt", headers=INTERNAL).status_code == 404
+    # Owner checks live in tests/test_artifact_access.py; without a user session even
+    # the internal token is not enough.
+    assert client.get("/artifacts/run-1/step0.html", headers=INTERNAL).status_code == 401
 
 
 def test_artifact_routes_are_registered_once():

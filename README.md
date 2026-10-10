@@ -20,7 +20,8 @@ FlowMind 是一个将 RPA（机器人流程自动化）与 AI（人工智能）�
 - 👁️ **视觉自愈 (Self-Healing)**：DSL 流程中 selector 失效时，自动截图交给视觉大模型重新定位并点击，降低 UI 改版导致的维护成本
 - 🏠 **本地优先混合算力**：AI 网关优先调用本地模型（Ollama / vLLM），仅复杂任务溢出云端，控制长期 API 成本
 - 🧩 **扩展接管浏览器**：通过浏览器扩展 + Native Messaging Host 直接操作 DOM（无 CDP / Playwright），可接管已登录会话、规避反爬检测
-- 🧱 **可选分布式**：配置 Redis 后，多 Registry 实例可共享在线表、跨实例派发与回传结果、并使用分布式锁
+- 🧱 **多机执行 + 可选多实例协调**：多台 Agent 机器同时接入执行任务；配置 Redis 后，多 Registry 实例可共享在线表、跨实例派发与回传结果、并使用分布式锁（持久化仍是单个 SQLite，见[分布式边界](#分布式边界)）
+- ⚡ **同步 / 后台两种执行模式**：秒级工具同步返回真实结果，模型在同一轮里接着用；长任务走后台，结果异步刷新
 
 ## 功能概览
 
@@ -153,7 +154,7 @@ FlowMind 是一个将 RPA（机器人流程自动化）与 AI（人工智能）�
 
 ## 系统架构
 
-FlowMind 采用分布式架构，分为三个核心组件：
+FlowMind 分为三个核心组件，Agent 可以部署在多台机器上：
 
 ```text
                     ┌─────────────────────────┐
@@ -186,6 +187,26 @@ FlowMind 采用分布式架构，分为三个核心组件：
 - **Client** (`/client/`): Web 聊天界面和 AI 调用层
 - **AI 层** (`/ai/`): 本地优先混合路由、视觉定位、JSON 结构化提取
 - **浏览器桥** (`/browser_bridge/`): 浏览器扩展 (MV3) + Native Messaging Host，content script 原生操作 DOM（无 CDP），可接管已登录标签页
+
+### 执行模式：同步与后台
+
+插件在 `manifest.yaml` 里用 `execution` 声明对话中的执行方式：
+
+| `execution` | 对话中的行为 | 内置插件 |
+| --- | --- | --- |
+| `sync` | Web 调 Registry 的 `/dispatch/sync` 并等待 Agent 的真实结果，模型在同一轮里读到结果再决定下一步（例如先汇总表格，再把合计写进邮件） | `excel_processor`、`word_processor`、`web_query`、`invoice_ocr`、`send_email` |
+| 不写（后台） | 走 `/dispatch/async`，模型拿到任务 ID，结果在任务中心和对话轨迹里异步刷新 | `rpa_flow` 等耗时长或需要操作浏览器的插件 |
+
+同步调用最长等待 Agent 端的 `timeout_sec` 与 Registry 的派发上限（120 秒），Web 端等待 `FLOWMIND_SYNC_DISPATCH_TIMEOUT`（默认 130 秒）。Agent 离线返回 503、超时返回 504，错误会作为工具结果交给模型。
+
+### 分布式边界
+
+- **已支持**：多台 Agent 同时在线，按插件派发到在线机器（也可指定 `machine_id`），每台机器可用独立 token（`FLOWMIND_AGENT_TOKENS_JSON`）；配置 `REDIS_URL` 后，多个 Registry 实例共享在线表、跨实例转发任务与回传结果，并使用分布式锁。
+- **尚不支持**：
+  - 持久化是单个 SQLite 文件（`FLOWMIND_REGISTRY_DB`，默认 `data/registry.db`）。多个 Registry 实例必须读写同一个文件，因此只适合同一台主机上的多进程，不适合跨主机部署，也不要把它放在网络文件系统上。
+  - 没有故障转移：等待中的派发由发起它的 Registry 进程在内存里持有，进程重启后等待丢失，任务记录停留在 `running`。
+  - Web 只连一个 `REGISTRY_API_URL`，Agent 只连一个 `REGISTRY_URL`；多实例需要前置负载均衡，且 MCP SSE 会话保存在实例内存里，需要开启会话保持。
+  - Redis 只做协调、不做持久化（见 [DEPLOYMENT.md](docs/DEPLOYMENT.md)）。
 
 ## 目录结构
 

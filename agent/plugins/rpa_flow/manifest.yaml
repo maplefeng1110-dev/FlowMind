@@ -55,7 +55,9 @@ tool_profile:
   supports_batch: false
   has_side_effects: true
   requires_confirmation: false
-  allowed_path_roots: []
+  allowed_path_roots:
+    - "flows"
+    - "data/rpa_results.db"
   max_retries: 0
 timeout_sec: 120
 owner: "system"

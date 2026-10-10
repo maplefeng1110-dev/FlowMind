@@ -4,7 +4,6 @@ import contextvars
 import json
 import os
 import re
-import secrets
 from contextlib import asynccontextmanager, suppress
 from typing import Any, Dict, List, Optional
 
@@ -63,6 +62,7 @@ from utils.internal_api import (
     INTERNAL_API_HEADER,
     USER_SESSION_HEADER,
     has_internal_api_token,
+    validate_agent_registration,
     validate_agent_token,
     validate_internal_api_token,
 )
@@ -163,10 +163,13 @@ async def upload_artifact(payload: ArtifactUpload, request: Request):
 
 @app.get("/artifacts/{run_id}/{name}")
 async def get_artifact(run_id: str, name: str, request: Request):
-    # Only the Web proxy (internal token) reads artifacts back.
-    _require_internal_request(request)
+    # Read back through the Web proxy on behalf of a user: snapshots are filed under the
+    # task id, so only the task's owner (or an admin) may see them.
+    current_user = await _resolve_request_user(request, require_user=True)
     path = ARTIFACTS_DIR / _safe_segment(run_id) / name
     if not ARTIFACT_NAME_RE.fullmatch(name) or not path.is_file():
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if not _is_admin_user(current_user) and not await get_task(run_id, owner_user_id=current_user["id"]):
         raise HTTPException(status_code=404, detail="artifact not found")
     return FileResponse(str(path), headers=ARTIFACT_RESPONSE_HEADERS)
 
@@ -186,18 +189,6 @@ def _require_internal_request(request: Request) -> None:
     provided_token = request.headers.get(INTERNAL_API_HEADER)
     if not validate_internal_api_token(provided_token):
         raise HTTPException(status_code=401, detail="Unauthorized internal API request")
-
-
-def _get_agent_ws_token() -> str:
-    return str(os.getenv("FLOWMIND_AGENT_WS_TOKEN", "") or "").strip()
-
-
-def _is_valid_agent_ws_token(provided_token: Any) -> bool:
-    expected_token = _get_agent_ws_token()
-    if not expected_token:
-        return False
-    normalized = str(provided_token or "").strip()
-    return bool(normalized) and secrets.compare_digest(normalized, expected_token)
 
 
 def _build_owner_scope(current_user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -381,6 +372,10 @@ async def _validate_dispatch_machine(rpa_id: str, machine_id: str | None) -> Opt
         return _build_dispatch_error(f"Machine {normalized_machine_id} does not support RPA {rpa_id}")
 
     return None
+
+
+def _dispatch_error_status(exc: Exception) -> int:
+    return 504 if "timed out" in str(exc).lower() else 503
 
 
 def _raise_http_for_dispatch_result(result: Dict[str, Any], expected_status: str) -> None:
@@ -646,14 +641,17 @@ async def dispatch_sync_api(data: AsyncDispatchRequest, request: Request):
             data.owner_user_id,
             resolved_owner_user_id,
         )
-    result = await _perform_dispatch(
-        data.rpa_id,
-        data.params,
-        data.machine_id,
-        data.conversation_id,
-        data.conversation_title,
-        resolved_owner_user_id,
-    )
+    try:
+        result = await _perform_dispatch(
+            data.rpa_id,
+            data.params,
+            data.machine_id,
+            data.conversation_id,
+            data.conversation_title,
+            resolved_owner_user_id,
+        )
+    except RuntimeError as exc:  # machine offline / send failure / timeout
+        raise HTTPException(status_code=_dispatch_error_status(exc), detail=str(exc)) from exc
     _raise_http_for_dispatch_result(result, "success")
     return result
 
@@ -669,14 +667,17 @@ async def dispatch_async_api(data: AsyncDispatchRequest, request: Request):
             data.owner_user_id,
             resolved_owner_user_id,
         )
-    result = await _perform_dispatch_async(
-        data.rpa_id,
-        data.params,
-        data.machine_id,
-        data.conversation_id,
-        data.conversation_title,
-        resolved_owner_user_id,
-    )
+    try:
+        result = await _perform_dispatch_async(
+            data.rpa_id,
+            data.params,
+            data.machine_id,
+            data.conversation_id,
+            data.conversation_title,
+            resolved_owner_user_id,
+        )
+    except RuntimeError as exc:  # machine offline / send failure
+        raise HTTPException(status_code=_dispatch_error_status(exc), detail=str(exc)) from exc
     _raise_http_for_dispatch_result(result, "accepted")
     return result
 
@@ -1080,11 +1081,14 @@ async def ws_endpoint(ws: WebSocket):
         async for raw in ws.iter_text():
             msg = json.loads(raw)
             if msg["type"] == "register":
-                if not _is_valid_agent_ws_token(msg.get("auth_token")):
-                    logger.warning("Rejected Agent websocket registration due to invalid auth token")
+                requested_machine_id = str(msg.get("machine_id") or "").strip()
+                if not requested_machine_id or not validate_agent_registration(
+                    requested_machine_id, msg.get("auth_token")
+                ):
+                    logger.warning("Rejected Agent websocket registration for machine %s", requested_machine_id or "?")
                     await ws.close(code=1008, reason="Invalid agent websocket token")
                     return
-                machine_id = msg["machine_id"]
+                machine_id = requested_machine_id
                 await engine.register(
                     machine_id,
                     ws,

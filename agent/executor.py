@@ -1,13 +1,33 @@
 import asyncio
 import importlib
+import os
 import sys
 from pathlib import Path
+from typing import Iterator, List, Optional, Tuple
 
 import yaml
 
+from agent.task_context import _current_task_id
+from utils.paths import UPLOAD_DIR
 from utils.plugin_result import error_result
 
 DEFAULT_PLUGIN_TIMEOUT = 60.0
+PATH_PARAM_NAMES = {"file_path", "document_path", "invoice_path", "output_path", "flow_path", "db_path", "source_file"}
+PATH_PARAM_SUFFIXES = ("_path", "_paths", "_file", "_files")
+
+
+def _resolve_path(path_text: str) -> Path:
+    return Path(os.path.expanduser(path_text)).resolve(strict=False)
+
+
+def _iter_path_params(params: dict) -> Iterator[Tuple[str, str]]:
+    for name, value in (params or {}).items():
+        lowered = str(name).lower()
+        if lowered not in PATH_PARAM_NAMES and not lowered.endswith(PATH_PARAM_SUFFIXES):
+            continue
+        for item in value if isinstance(value, (list, tuple)) else [value]:
+            if isinstance(item, str) and item.strip():
+                yield str(name), item.strip()
 
 
 class LocalExecutor:
@@ -61,10 +81,46 @@ class LocalExecutor:
             timeout = DEFAULT_PLUGIN_TIMEOUT
         return timeout if timeout > 0 else DEFAULT_PLUGIN_TIMEOUT
 
-    async def run(self, rpa_id: str, params: dict) -> dict:
+    def _allowed_path_roots(self, rpa_id: str) -> List[Path]:
+        """Directories a plugin may read/write: the roots its manifest declares, plus
+        the upload directory and FLOWMIND_AGENT_ALLOWED_PATHS. Plugins that declare no
+        roots are not restricted."""
+        profile = self.manifests.get(rpa_id, {}).get("tool_profile") or {}
+        declared = [str(root).strip() for root in profile.get("allowed_path_roots") or [] if str(root).strip()]
+        if not declared:
+            return []
+        extra = [root.strip() for root in os.getenv("FLOWMIND_AGENT_ALLOWED_PATHS", "").split(os.pathsep) if root.strip()]
+        return [_resolve_path(root) for root in declared + extra] + [UPLOAD_DIR.resolve()]
+
+    def _find_disallowed_path(self, rpa_id: str, params: dict) -> Optional[str]:
+        roots = self._allowed_path_roots(rpa_id)
+        if not roots:
+            return None
+        for name, value in _iter_path_params(params):
+            resolved = _resolve_path(value)
+            if not any(resolved == root or resolved.is_relative_to(root) for root in roots):
+                return f"{name}={value}"
+        return None
+
+    async def run(self, rpa_id: str, params: dict, task_id: Optional[str] = None) -> dict:
+        context_token = _current_task_id.set(task_id)
+        try:
+            return await self._run(rpa_id, params)
+        finally:
+            _current_task_id.reset(context_token)
+
+    async def _run(self, rpa_id: str, params: dict) -> dict:
         plugin = self.plugins.get(rpa_id)
         if not plugin:
             return error_result(f"Plugin not found: {rpa_id}")
+
+        # Enforced here on the Agent: the chat-side constraint layer only guides the model.
+        disallowed = self._find_disallowed_path(rpa_id, params or {})
+        if disallowed:
+            return error_result(
+                "Path is outside the directories this plugin may access",
+                error=f"{disallowed} is not under the plugin's allowed_path_roots",
+            )
 
         try:
             result = await asyncio.wait_for(plugin.run(**params), timeout=self._get_timeout(rpa_id))

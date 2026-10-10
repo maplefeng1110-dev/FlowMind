@@ -72,4 +72,6 @@ tool_profile:
   allowed_path_roots: []
   max_retries: 1
 timeout_sec: 15
+# Fast enough to wait on: the model sees the real result in the same turn.
+execution: "sync"
 owner: "system"

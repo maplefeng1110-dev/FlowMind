@@ -20,8 +20,9 @@ from agent.rpa_core.driver import ExtensionDriver
 from agent.rpa_core.flow_dsl import load_flow
 from agent.rpa_core.interpreter import FlowRunner
 from agent.rpa_core.results_db import SqliteResultWriter
-from agent.rpa_core.snapshots import LocalSnapshotSink, RemoteSnapshotSink, RemoteSnapshotSink
+from agent.rpa_core.snapshots import LocalSnapshotSink, RemoteSnapshotSink
 from agent.rpa_core.transport import BridgeServerTransport
+from agent.task_context import current_task_id
 
 
 def _bridge_port(explicit: Optional[int]) -> int:
@@ -58,10 +59,13 @@ async def run(
     db = SqliteResultWriter(db_path or os.getenv("RPA_RESULTS_DB", "data/rpa_results.db"))
     snapshot_dir = os.getenv("RPA_SNAPSHOT_DIR", "data/snapshots")
     artifacts_url = os.getenv("FLOWMIND_ARTIFACTS_URL")
+    # Snapshots are filed under the FlowMind task id (an unguessable UUID) so the
+    # Registry can serve them only to the task's owner.
+    task_id = current_task_id() or ""
     snapshots = (
-        RemoteSnapshotSink(artifacts_url, fallback_dir=snapshot_dir)
+        RemoteSnapshotSink(artifacts_url, task_id=task_id, fallback_dir=snapshot_dir)
         if artifacts_url
-        else LocalSnapshotSink(snapshot_dir)
+        else LocalSnapshotSink(snapshot_dir, task_id=task_id)
     )
 
     try:
