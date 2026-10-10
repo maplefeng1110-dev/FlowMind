@@ -46,7 +46,7 @@ def executed(monkeypatch):
     async def fake_tools(session):
         return [{"type": "function", "function": {"name": rpa["id"]}} for rpa in (EXCEL, PURGE)]
 
-    async def fake_execute(session, tool_name, tool_args, *args):
+    async def fake_execute(session, tool_name, tool_args, *args, **kwargs):
         calls.append((tool_name, tool_args))
         return '{"status": "pending"}', "pending", "task-1"
 

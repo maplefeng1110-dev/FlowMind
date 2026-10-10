@@ -374,6 +374,10 @@ async def _validate_dispatch_machine(rpa_id: str, machine_id: str | None) -> Opt
     return None
 
 
+def _dispatch_error_status(exc: Exception) -> int:
+    return 504 if "timed out" in str(exc).lower() else 503
+
+
 def _raise_http_for_dispatch_result(result: Dict[str, Any], expected_status: str) -> None:
     if result.get("status") == expected_status:
         return
@@ -637,14 +641,17 @@ async def dispatch_sync_api(data: AsyncDispatchRequest, request: Request):
             data.owner_user_id,
             resolved_owner_user_id,
         )
-    result = await _perform_dispatch(
-        data.rpa_id,
-        data.params,
-        data.machine_id,
-        data.conversation_id,
-        data.conversation_title,
-        resolved_owner_user_id,
-    )
+    try:
+        result = await _perform_dispatch(
+            data.rpa_id,
+            data.params,
+            data.machine_id,
+            data.conversation_id,
+            data.conversation_title,
+            resolved_owner_user_id,
+        )
+    except RuntimeError as exc:  # machine offline / send failure / timeout
+        raise HTTPException(status_code=_dispatch_error_status(exc), detail=str(exc)) from exc
     _raise_http_for_dispatch_result(result, "success")
     return result
 
@@ -660,14 +667,17 @@ async def dispatch_async_api(data: AsyncDispatchRequest, request: Request):
             data.owner_user_id,
             resolved_owner_user_id,
         )
-    result = await _perform_dispatch_async(
-        data.rpa_id,
-        data.params,
-        data.machine_id,
-        data.conversation_id,
-        data.conversation_title,
-        resolved_owner_user_id,
-    )
+    try:
+        result = await _perform_dispatch_async(
+            data.rpa_id,
+            data.params,
+            data.machine_id,
+            data.conversation_id,
+            data.conversation_title,
+            resolved_owner_user_id,
+        )
+    except RuntimeError as exc:  # machine offline / send failure
+        raise HTTPException(status_code=_dispatch_error_status(exc), detail=str(exc)) from exc
     _raise_http_for_dispatch_result(result, "accepted")
     return result
 

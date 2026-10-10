@@ -2535,7 +2535,8 @@ async function sendMessage() {
                         aiMessageElement.classList.add("has-tool-trace");
                         updateToolTraceBannerElement(toolTraceBannerElement, aiMessage.toolTrace);
                         updateToolTraceElement(toolTraceElement, aiMessage.toolTrace);
-                        if (data.tool.task_id) {
+                        // Sync tools already returned a terminal result in this turn.
+                        if (data.tool.task_id && !isTerminalToolStatus(data.tool.status)) {
                             startTaskPolling(conversation.id, aiMessage.id, data.tool.task_id);
                         }
                         scrollToBottom();

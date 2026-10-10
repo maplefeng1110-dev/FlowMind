@@ -420,6 +420,35 @@ async def test_registry_dispatch_sync_raises_http_error_for_failed_dispatch(monk
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("endpoint", "performer", "error", "status_code"),
+    [
+        (dispatch_sync_api, "_perform_dispatch", "Machine offline: m1", 503),
+        (dispatch_sync_api, "_perform_dispatch", "Task timed out: t-1", 504),
+        (dispatch_async_api, "_perform_dispatch_async", "Machine offline: m1", 503),
+    ],
+)
+async def test_registry_dispatch_maps_engine_failures_to_http_errors(
+    monkeypatch, endpoint, performer, error, status_code
+):
+    monkeypatch.setattr("registry.main.has_internal_api_token", lambda: True)
+    monkeypatch.setattr("registry.main.validate_internal_api_token", lambda token: token == "secret")
+    monkeypatch.setattr(
+        "registry.main.get_user_by_session_token",
+        AsyncMock(return_value={"id": "user-9", "role": "business", "assigned_rpa_ids": ["invoice_ocr"]}),
+    )
+    monkeypatch.setattr(f"registry.main.{performer}", AsyncMock(side_effect=RuntimeError(error)))
+
+    data = AsyncDispatchRequest(rpa_id="invoice_ocr", params={"invoice_path": "a.pdf"})
+
+    with pytest.raises(HTTPException) as exc_info:
+        await endpoint(data, request=_build_request("secret", "session-1"))
+
+    assert exc_info.value.status_code == status_code
+    assert exc_info.value.detail == error
+
+
+@pytest.mark.asyncio
 async def test_registry_machines_filters_for_business_session(monkeypatch):
     monkeypatch.setattr("registry.main.has_internal_api_token", lambda: True)
     monkeypatch.setattr("registry.main.validate_internal_api_token", lambda token: token == "secret")

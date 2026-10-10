@@ -22,6 +22,7 @@ from client.web_server_tooling import (
     _build_required_tool_block_message,
     _build_required_tool_prompt,
     _collect_async_tool_ids,
+    _collect_sync_tool_ids,
     _execute_tool_call,
     _extract_available_tool_ids,
     _fetch_available_tools,
@@ -144,6 +145,7 @@ async def _maybe_run_slash_command(
             }
             available_ids = _extract_available_tool_ids(await _fetch_available_tools(session))
             async_ids = _collect_async_tool_ids(registered)
+            sync_ids = _collect_sync_tool_ids(registered)
 
             rpa_id, params = _parse_slash_command(text, rpa_by_id)
             available_hint = ", ".join(sorted(rpa_by_id)) or "（无）"
@@ -168,7 +170,7 @@ async def _maybe_run_slash_command(
                 )
 
             result_text, status, task_id = await _execute_tool_call(
-                session, rpa_id, params, {}, async_ids, None, session_token,
+                session, rpa_id, params, {}, async_ids, None, session_token, sync_tool_ids=sync_ids,
             )
 
     reply = f"⌘ 直接执行 `{rpa_id}` · {status}\n\n{result_text or '(无输出)'}"
@@ -217,6 +219,7 @@ def _build_system_prompt() -> str:
         "If the current turn is narrowed to one required tool, call that tool before replying.\n"
         "If the user has uploaded files, their paths will appear in the conversation and should be used as tool arguments when relevant.\n"
         "If a tool returns status='pending' with a task_id, explain that the task is running in the background and the UI will update when it finishes.\n"
+        "If a tool returns status='success' with data, that is the real result: use it for any follow-up tool call in this turn.\n"
         "Do not call the same tool again with the same arguments unless the previous call failed or the arguments changed.\n"
         "Never say a task is completed if no tool was actually called."
     )
@@ -246,6 +249,7 @@ async def _run_chat_loop(
             )
             available_tools = _filter_model_visible_tools(available_tools, registered_rpas)
             async_tool_ids = _collect_async_tool_ids(registered_rpas)
+            sync_tool_ids = _collect_sync_tool_ids(registered_rpas)
             available_tool_ids = _extract_available_tool_ids(available_tools)
             required_rpas = _get_required_rpas_for_messages(messages, registered_rpas)
             required_tool_ids = {rpa["id"] for rpa in required_rpas}
@@ -381,6 +385,7 @@ async def _run_chat_loop(
                                     async_tool_ids,
                                     conversation_context,
                                     session_token,
+                                    sync_tool_ids=sync_tool_ids,
                                 )
                             else:
                                 result_payload = {
@@ -504,6 +509,7 @@ async def _run_chat_loop(
                             async_tool_ids,
                             conversation_context,
                             session_token,
+                            sync_tool_ids=sync_tool_ids,
                         )
                     else:
                         result_payload = {

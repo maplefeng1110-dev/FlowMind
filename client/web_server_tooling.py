@@ -23,6 +23,8 @@ REGISTRY_API_URL = os.getenv("REGISTRY_API_URL", "http://127.0.0.1:8000")
 MCP_SSE_URL = f"{REGISTRY_API_URL}/mcp/sse"
 MAX_REQUIRED_TOOL_RETRIES = 2
 MAX_TOOL_CALL_STEPS = max(1, int(os.getenv("FLOWMIND_MAX_TOOL_CALL_STEPS", "6")))
+# How long the Web waits on /dispatch/sync; above the Registry's own 120s dispatch wait.
+SYNC_DISPATCH_TIMEOUT_SECONDS = max(5.0, float(os.getenv("FLOWMIND_SYNC_DISPATCH_TIMEOUT", "130")))
 DEFAULT_TOOL_RETRY_BUDGET = max(0, int(os.getenv("FLOWMIND_TOOL_RETRY_BUDGET", "1")))
 CONFIRMATION_TERMS = (
     "确认",
@@ -484,13 +486,27 @@ def _evaluate_tool_constraints(
     }
 
 
+def _is_sync_tool(rpa: Dict[str, Any]) -> bool:
+    return str(rpa.get("execution") or "").strip().lower() == "sync"
+
+
 def _collect_async_tool_ids(rpas: List[Dict[str, Any]]) -> Set[str]:
-    """收集所有走后台任务链路的工具 ID。"""
+    """收集走后台任务链路的工具 ID（manifest 未声明 execution: sync 的都算）。"""
 
     return {
         rpa["id"]
         for rpa in rpas
-        if isinstance(rpa, dict) and rpa.get("id")
+        if isinstance(rpa, dict) and rpa.get("id") and not _is_sync_tool(rpa)
+    }
+
+
+def _collect_sync_tool_ids(rpas: List[Dict[str, Any]]) -> Set[str]:
+    """收集声明 execution: sync 的工具 ID：本轮等待真实结果，模型可据此继续下一步。"""
+
+    return {
+        rpa["id"]
+        for rpa in rpas
+        if isinstance(rpa, dict) and rpa.get("id") and _is_sync_tool(rpa)
     }
 
 
@@ -766,10 +782,14 @@ async def _proxy_json(
     *,
     params: Dict[str, Any] | None = None,
     session_token: Optional[str] = None,
+    timeout: Optional[float] = None,
 ) -> Any:
     """把 Web 层请求转发到 Registry 的 HTTP API。"""
 
-    async with httpx.AsyncClient(headers=build_internal_api_headers(session_token=session_token)) as client:
+    async with httpx.AsyncClient(
+        headers=build_internal_api_headers(session_token=session_token),
+        timeout=timeout if timeout is not None else httpx.Timeout(5.0),
+    ) as client:
         try:
             response = await client.request(method, f"{REGISTRY_API_URL}{path}", json=json_body, params=params)
         except httpx.RequestError as exc:
@@ -806,6 +826,26 @@ async def _dispatch_rpa_async(
     return await _proxy_json("POST", "/dispatch/async", json_body=request_body, session_token=session_token)
 
 
+async def _dispatch_rpa_sync(
+    rpa_id: str,
+    params: Dict[str, Any],
+    conversation_context: Optional[Dict[str, str]] = None,
+    session_token: Optional[str] = None,
+) -> Dict[str, Any]:
+    """同步派发：等待 Agent 返回真实结果。"""
+
+    request_body: Dict[str, Any] = {"rpa_id": rpa_id, "params": params}
+    if conversation_context:
+        request_body.update(conversation_context)
+    return await _proxy_json(
+        "POST",
+        "/dispatch/sync",
+        json_body=request_body,
+        session_token=session_token,
+        timeout=SYNC_DISPATCH_TIMEOUT_SECONDS,
+    )
+
+
 async def _execute_tool_with_dedupe(
     session: ClientSession,
     tool_name: str,
@@ -840,14 +880,32 @@ async def _execute_tool_call(
     async_tool_ids: Set[str],
     conversation_context: Optional[Dict[str, str]] = None,
     session_token: Optional[str] = None,
+    sync_tool_ids: Optional[Set[str]] = None,
 ) -> tuple[str, str, Optional[str]]:
-    """统一执行工具调用：后台任务走 async，其他工具走同步执行。"""
+    """统一执行工具调用：声明同步的工具等待真实结果，其余已注册工具走后台任务。"""
 
     signature = _tool_call_signature(tool_name, tool_args)
     cached = tool_cache.get(signature)
     if cached:
         logger.info("Skipping duplicate tool call and reusing cached result: %s", signature)
         return cached["result_text"], "cached", cached.get("task_id")
+
+    if tool_name in (sync_tool_ids or set()):
+        try:
+            result = await _dispatch_rpa_sync(
+                tool_name,
+                tool_args,
+                conversation_context=conversation_context,
+                session_token=session_token,
+            )
+            result_text = json.dumps(result, ensure_ascii=False, default=str)
+            status = "success" if result.get("status") == "success" else "error"
+            task_id = result.get("task_id")
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else exc
+            result_text, status, task_id = f"Error: {detail}", "error", None
+        tool_cache[signature] = {"result_text": result_text, "status": status, "task_id": task_id}
+        return result_text, status, task_id
 
     if tool_name in async_tool_ids:
         try:

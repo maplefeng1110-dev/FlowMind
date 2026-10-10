@@ -12,7 +12,7 @@ FlowMind 是一个 AI Native RPA（机器人流程自动化）编排系统，将
 
 ## 2. 系统架构
 
-FlowMind 采用分布式架构，分为三个核心组件：
+FlowMind 分为三个核心组件，Agent 可以部署在多台机器上（多实例的支持范围见 [README · 分布式边界](../README.md#分布式边界)）：
 
 ### 2.1 Registry（注册中心 & MCP 工具服务）
 
@@ -188,6 +188,11 @@ sequenceDiagram
 
     Registry->>Client: 工具调用完成
 ```
+
+对话里的工具调用按 manifest 的 `execution` 分两条路：
+
+- `execution: "sync"`：Web 调 `POST /dispatch/sync`，在同一个 HTTP 请求里等到 Agent 的 `result`（Registry 最长等 120 秒，Agent 离线返回 503、超时返回 504），把真实结果作为工具消息交给模型，模型可以在同一轮里继续调用下一个工具。
+- 不写 `execution`（后台）：Web 调 `POST /dispatch/async`，立即拿到 `task_id`，模型看到的是 `pending`；结果写入任务表，由任务中心和前端轮询展示。
 
 ## 5. 数据模型
 
@@ -398,6 +403,7 @@ returns_schema:
       type: object
 
 timeout_sec: 60                     # 超时时间
+execution: "sync"                   # 可选：sync 在对话中等待真实结果；不写则走后台任务
 owner: "system"                     # 插件所有者
 ```
 
@@ -487,6 +493,7 @@ tail -f logs/invoice_ocr.log
 2. **多节点与共享状态演进**
    - 当前权限边界已经收口到 Registry
    - 若继续多机部署，建议把会话存储、服务鉴权、任务状态观测进一步独立化
+   - 目前持久化是单个 SQLite、等待中的派发只存在发起它的进程内存里；跨主机多实例需要先换成共享数据库，并在启动时回收停留在 `running` 的任务
 
 3. **调度层增强**
    - 当前已经有定时调度中心、计划记录和执行轨迹
