@@ -1,5 +1,8 @@
 # FlowMind
 
+> ⚠️ **本项目已停止维护（2026 年 11 月起）**：代码保留作参考，不再更新，也不再处理 issue 和 PR。
+> This project is no longer maintained; the code stays here for reference.
+
 > **AI Native RPA 编排系统** —— 让 RPA 更好用更智能
 
 FlowMind 是一个将 RPA（机器人流程自动化）与 AI（人工智能）结合的编排系统，通过 MCP（Model Context Protocol）协议实现标准化的工具连接，让用户通过自然语言对话即可完成各种自动化任务。
